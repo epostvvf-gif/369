@@ -172,6 +172,11 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                     // Videos
                     FileEntity(name = "vishwa_vijayaa_foundation_anthem.mp4", path = "/videos/vishwa_vijayaa_foundation_anthem.mp4", mimeType = "video/mp4", size = 105800000, category = "Videos"),
 
+                    // Others category - Uncategorized files to be organized by AI
+                    FileEntity(name = "vishwa_yearly_audit.txt", path = "/docs/vishwa_yearly_audit.txt", mimeType = "text/plain", size = 450000, category = "Others"),
+                    FileEntity(name = "sunset_sea_snapshot.jpeg", path = "/images/sunset_sea_snapshot.jpeg", mimeType = "image/jpeg", size = 1250000, category = "Others"),
+                    FileEntity(name = "vedic_hymns_recording.mp3", path = "/audio/vedic_hymns_recording.mp3", mimeType = "audio/mpeg", size = 5600000, category = "Others"),
+
                     // Junk stuff (For manual cleaner animations)
                     FileEntity(name = "cache_compiler_dump.tmp", path = "/junk/cache_compiler_dump.tmp", mimeType = "text/plain", size = 12500000, isJunk = true, category = "Others"),
                     FileEntity(name = "gradle_build_cache_unzip.log", path = "/junk/gradle_build_cache_unzip.log", mimeType = "text/plain", size = 18400000, isJunk = true, category = "Others"),
@@ -670,6 +675,52 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         chatDrawerMessages.value = listOf(
             ChatMessage("welcome_drawer", "Hello! I am your interactive File AI Assistant, activated via the floating quick-access drawer. Ask me any natural language question about your local files, categorizations, or space savings! 📂✨", false)
         )
+    }
+
+    fun performAiCategoryReorganization() {
+        viewModelScope.launch {
+            isSendingDrawerToGemini.value = true
+            delay(1000) // Simulated AI analysis latency
+            
+            // Re-fetch files
+            val currentFiles = normalFiles.value
+            var updatedCount = 0
+            
+            currentFiles.forEach { file ->
+                var targetCategory: String? = null
+                if (file.category == "Others") {
+                    val n = file.name.lowercase()
+                    if (n.endsWith(".txt") || n.endsWith(".pdf") || n.endsWith(".docx") || n.contains("audit") || n.contains("report")) {
+                        targetCategory = "Documents"
+                    } else if (n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.contains("pic") || n.contains("snapshot")) {
+                        targetCategory = "Images"
+                    } else if (n.endsWith(".mp3") || n.endsWith(".wav") || n.contains("recording") || n.contains("song")) {
+                        targetCategory = "Audio"
+                    } else if (n.endsWith(".mp4") || n.contains("anthem") || n.contains("movie")) {
+                        targetCategory = "Videos"
+                    }
+                }
+                
+                if (targetCategory != null) {
+                    val updatedFile = file.copy(category = targetCategory)
+                    repository.insertFile(updatedFile)
+                    updatedCount++
+                }
+            }
+
+            val resultMsg = if (updatedCount > 0) {
+                "AI Optimization complete! Automatically analyzed file nomenclature and updated category for **$updatedCount files** to correct storage indices (e.g., Documents/Images/Audio). 📊✨"
+            } else {
+                "Clean-sweep analysis complete! All normal files are already correctly categorized in their matching storage indices. No unrecognized objects found."
+            }
+
+            chatDrawerMessages.value = chatDrawerMessages.value + ChatMessage(
+                id = "ai_organize_msg_${System.currentTimeMillis()}",
+                text = resultMsg,
+                isUser = false
+            )
+            isSendingDrawerToGemini.value = false
+        }
     }
 
     // --- Dynamic formatters inside state layer ---

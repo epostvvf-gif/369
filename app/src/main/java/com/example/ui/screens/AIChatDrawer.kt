@@ -127,6 +127,55 @@ fun AIChatDrawer(
                     }
                 }
             }
+
+            // AI Smart File Organizer dedicated interactive task card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.04f)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+                    .testTag("ai_smart_file_organizer_card")
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = CustomFlameOrange,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "AI Smart File Organizer",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                        Text(
+                            text = "Auto-sort uncategorized '.txt', '.mp3', etc. to correct paths",
+                            fontSize = 10.sp,
+                            color = TextGray
+                        )
+                    }
+                    Button(
+                        onClick = { viewModel.performAiCategoryReorganization() },
+                        colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        modifier = Modifier
+                            .height(28.dp)
+                            .testTag("btn_ai_reorganize_now")
+                    ) {
+                        Text("Sort Now", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
             
             // Conversation Column
             val lazyListState = rememberLazyListState()
