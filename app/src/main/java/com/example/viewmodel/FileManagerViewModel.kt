@@ -42,6 +42,13 @@ data class JunkItem(
     val isChecked: Boolean = true
 )
 
+// Metadata representation for folder categories in M3 File Explorer
+data class FolderCategoryMetadata(
+    val name: String,
+    val fileCount: Int,
+    val totalSize: Long
+)
+
 sealed interface PinMode {
     object Register : PinMode
     object Confirm : PinMode
@@ -91,6 +98,24 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     val searchQuery = MutableStateFlow("")
     val selectedLocalFileIds = MutableStateFlow<Set<Int>>(emptySet())
     val isMultiSelect = MutableStateFlow(false)
+    
+    // --- File Explorer Specific States ---
+    val fileExplorerMode = MutableStateFlow("Folders") // "Folders" or "Flat"
+    val explorerSelectedFolder = MutableStateFlow<String?>(null) // "Documents", "Images", "Audio", "Videos", "Others" or null for root
+
+    fun getFolderCategoriesStream(): Flow<List<FolderCategoryMetadata>> {
+        return normalFiles.map { files ->
+            val categories = listOf("Documents", "Images", "Audio", "Videos", "Others")
+            categories.map { category ->
+                val matchingFiles = files.filter { it.category == category }
+                FolderCategoryMetadata(
+                    name = category,
+                    fileCount = matchingFiles.size,
+                    totalSize = matchingFiles.sumOf { it.size }
+                )
+            }
+        }
+    }
     
     // --- Junk Cleanup Animation states ---
     val isJunkCleaning = MutableStateFlow(false)
@@ -242,11 +267,16 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     // Calculates how heavily the characters in the search query match this file's name.
     // Returns a dynamic matched score list of Pairs
     fun calculateSearchMatchesFlow(): Flow<List<Pair<FileEntity, Double>>> {
-        return combine(normalFiles, searchQuery) { files, query ->
-            if (query.isBlank()) {
-                files.map { it to 100.0 }
+        return combine(normalFiles, searchQuery, fileExplorerMode, explorerSelectedFolder) { files, query, mode, folder ->
+            val scopedFiles = if (mode == "Folders" && folder != null) {
+                files.filter { it.category == folder }
             } else {
-                files.map { file ->
+                files
+            }
+            if (query.isBlank()) {
+                scopedFiles.map { it to 100.0 }
+            } else {
+                scopedFiles.map { file ->
                     val percentage = getCustomSearchMatchRatio(file.name, query)
                     file to percentage
                 }
@@ -614,6 +644,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         isSendingToGemini.value = true
 
         viewModelScope.launch {
+            val localContext = getLocalFilesContext()
+            val fullPrompt = "$localContext\n\nUser Question:\n$query"
+
             // Incorporate chat history to pass to Gemini
             val historyContents = chatbotMessages.value.filter { it.id != userMsgId && it.id != "welcome" }.map { 
                 Content(parts = listOf(Part(text = it.text)))
@@ -621,7 +654,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
             // Call Repository Gemini endpoint
             val aiResponseText = repository.askGemini(
-                prompt = query,
+                prompt = fullPrompt,
                 customKey = geminiApiKey.value,
                 useHighThinking = useHighThinking.value,
                 history = historyContents

@@ -705,177 +705,361 @@ fun FileListSection(
     viewModel: FileManagerViewModel,
     modifier: Modifier = Modifier
 ) {
-    LazyColumn(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
+    val explorerMode by viewModel.fileExplorerMode.collectAsStateWithLifecycle()
+    val selectedFolder by viewModel.explorerSelectedFolder.collectAsStateWithLifecycle()
+    val folderMetadata by viewModel.getFolderCategoriesStream().collectAsStateWithLifecycle(emptyList())
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Mode switch row: Folders vs Flat files List
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Folders view option
+            FilterChip(
+                selected = explorerMode == "Folders",
+                onClick = { viewModel.fileExplorerMode.value = "Folders" },
+                label = { Text("Folders View", fontSize = 12.sp) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Folder,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                modifier = Modifier.testTag("explorer_tab_folders"),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = CosmicPrimary,
+                    selectedLabelColor = Color.White,
+                    selectedLeadingIconColor = Color.White
+                )
+            )
+
+            // Flat files list option
+            FilterChip(
+                selected = explorerMode == "Flat",
+                onClick = { viewModel.fileExplorerMode.value = "Flat" },
+                label = { Text("Flat List View", fontSize = 12.sp) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.List,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                modifier = Modifier.testTag("explorer_tab_flat"),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = CosmicPrimary,
+                    selectedLabelColor = Color.White,
+                    selectedLeadingIconColor = Color.White
+                )
+            )
+        }
+
+        // Selected breadcrumb trail when drilled down
+        if (explorerMode == "Folders" && selectedFolder != null) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Items List",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "${searchResults.size} matches available",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = AquaticWaveBlue
-                )
-            }
-        }
-
-        if (searchResults.isEmpty()) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 40.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                IconButton(
+                    onClick = { viewModel.explorerSelectedFolder.value = null },
+                    modifier = Modifier.size(28.dp).testTag("explorer_back_to_root")
                 ) {
                     Icon(
-                        Icons.Default.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "No files match your query.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.outline
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Back to folders",
+                        tint = CustomFlameOrange,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Root",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.clickable { viewModel.explorerSelectedFolder.value = null }
+                )
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = selectedFolder ?: "",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                    color = CustomFlameOrange
+                )
             }
         }
 
-        items(searchResults, key = { it.first.id }) { (file, matchScore) ->
-            val isSelected = selectedIds.contains(file.id)
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .combinedClickable(
-                        onLongClick = {
-                            if (!isMultiSelect) {
-                                onToggleSelectMode()
-                                onToggleFile(file)
-                            }
-                        },
-                        onClick = {
-                            if (isMultiSelect) {
-                                onToggleFile(file)
-                            } else {
-                                // Informative short tap snack feedback
-                            }
-                        }
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1.5f)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // If in Folders mode and no folder category is selected -> Show the gorgeous virtual folders grid!
+            if (explorerMode == "Folders" && selectedFolder == null) {
+                item {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Directory Folders",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
-                    .testTag("file_row_card_${file.id}"),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
-                    }
-                ),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .padding(12.dp)
-                        .fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (isMultiSelect) {
-                        Checkbox(
-                            checked = isSelected,
-                            onCheckedChange = { onToggleFile(file) },
-                            modifier = Modifier.testTag("checkbox_${file.id}")
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                    }
+                }
 
-                    // Circular icon based on type
-                    val categoryIcon = when (file.category) {
-                        "Documents" -> Icons.Default.Description
-                        "Images" -> Icons.Default.Image
-                        "Audio" -> Icons.Default.VolumeUp
-                        "Videos" -> Icons.Default.Videocam
-                        else -> Icons.Default.InsertDriveFile
-                    }
-                    val categoryColor = when (file.category) {
+                items(folderMetadata) { folder ->
+                    val folderColor = when (folder.name) {
                         "Documents" -> AquaticWaveBlue
                         "Images" -> CustomFlameOrange
                         "Audio" -> ForestEcoGreen
                         "Videos" -> MaterialTheme.colorScheme.primary
                         else -> MaterialTheme.colorScheme.outline
                     }
+                    val folderIcon = when (folder.name) {
+                        "Documents" -> Icons.Default.Description
+                        "Images" -> Icons.Default.Image
+                        "Audio" -> Icons.Default.VolumeUp
+                        "Videos" -> Icons.Default.Videocam
+                        else -> Icons.Default.FolderOpen
+                    }
 
-                    Box(
+                    Card(
                         modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(categoryColor.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .clickable { viewModel.explorerSelectedFolder.value = folder.name }
+                            .testTag("folder_card_${folder.name.lowercase()}"),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                        ),
+                        shape = RoundedCornerShape(14.dp)
                     ) {
-                        Icon(
-                            imageVector = categoryIcon,
-                            contentDescription = file.category,
-                            tint = categoryColor,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = file.name,
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "${file.category} • ${viewModel.formatFileSize(file.size)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    // Matching Score Indicator Badge (if search query actively typed)
-                    if (matchScore < 100.0) {
-                        Box(
+                        Row(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(AquaticWaveBlue.copy(alpha = 0.15f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .padding(12.dp)
+                                .fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "${matchScore.toInt()}% match",
-                                fontSize = 10.sp,
-                                color = AquaticWaveBlue,
-                                fontWeight = FontWeight.Bold
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(folderColor.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = folderIcon,
+                                    contentDescription = folder.name,
+                                    tint = folderColor,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(14.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = folder.name,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "${folder.fileCount} files • ${viewModel.formatFileSize(folder.totalSize)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = "Open folder",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(20.dp)
                             )
                         }
-                    } else {
-                        // Regular quick trash icon for normal mode delete
-                        if (!isMultiSelect) {
-                            IconButton(onClick = { viewModel.deleteLocalFileDirectly(file.id) }) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Delete File",
-                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(18.dp)
+                    }
+                }
+            } else {
+                // List the matched files (scoped inside category if appropriate)
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = if (explorerMode == "Folders") "$selectedFolder Contents" else "All Shared Files",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "${searchResults.size} item${if (searchResults.size != 1) "s" else ""}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AquaticWaveBlue
+                        )
+                    }
+                }
+
+                if (searchResults.isEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 40.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "No files match your query.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
+                }
+
+                items(searchResults, key = { it.first.id }) { (file, matchScore) ->
+                    val isSelected = selectedIds.contains(file.id)
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onLongClick = {
+                                    if (!isMultiSelect) {
+                                        onToggleSelectMode()
+                                        onToggleFile(file)
+                                    }
+                                },
+                                onClick = {
+                                    if (isMultiSelect) {
+                                        onToggleFile(file)
+                                    }
+                                }
+                            )
+                            .testTag("file_row_card_${file.id}"),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) {
+                                MaterialTheme.colorScheme.secondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                            }
+                        ),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .padding(12.dp)
+                                .fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isMultiSelect) {
+                                Checkbox(
+                                    checked = isSelected,
+                                    onCheckedChange = { onToggleFile(file) },
+                                    modifier = Modifier.testTag("checkbox_${file.id}")
                                 )
+                                Spacer(modifier = Modifier.width(6.dp))
+                            }
+
+                            // Circular icon based on type
+                            val categoryIcon = when (file.category) {
+                                "Documents" -> Icons.Default.Description
+                                "Images" -> Icons.Default.Image
+                                "Audio" -> Icons.Default.VolumeUp
+                                "Videos" -> Icons.Default.Videocam
+                                else -> Icons.Default.InsertDriveFile
+                            }
+                            val categoryColor = when (file.category) {
+                                "Documents" -> AquaticWaveBlue
+                                "Images" -> CustomFlameOrange
+                                "Audio" -> ForestEcoGreen
+                                "Videos" -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.outline
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(categoryColor.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = categoryIcon,
+                                    contentDescription = file.category,
+                                    tint = categoryColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = file.name,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = Color.White
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "${file.category} • ${viewModel.formatFileSize(file.size)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            // Matching Score Indicator Badge (if search query actively typed)
+                            if (matchScore < 100.0) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(AquaticWaveBlue.copy(alpha = 0.15f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "${matchScore.toInt()}% match",
+                                        fontSize = 10.sp,
+                                        color = AquaticWaveBlue,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            } else {
+                                // Regular quick trash icon for normal mode delete
+                                if (!isMultiSelect) {
+                                    IconButton(onClick = { viewModel.deleteLocalFileDirectly(file.id) }) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Delete File",
+                                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
