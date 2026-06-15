@@ -1,0 +1,23 @@
+# Handle line endings automatically for text files
+* text=auto
+
+# Declare text files
+*.kt text
+*.kts text
+*.xml text
+*.properties text
+*.yml text
+*.yaml text
+*.md text
+*.gradle text
+
+# Explicitly treat binary files as binary (do not change line endings)
+*.jar binary
+*.bin binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.keystore binary
