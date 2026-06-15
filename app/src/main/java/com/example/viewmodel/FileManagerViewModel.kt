@@ -405,15 +405,12 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             isJunkScanning.value = true
             delay(1500) // Simulated scan delay
-            scannedJunkItems.value = listOf(
-                JunkItem("j1", "cache_compiler_dump.tmp", "/storage/emulated/0/Android/data/cache_compiler_dump.tmp", 12500000L, isFolder = false),
-                JunkItem("j2", "gradle_build_cache_unzip.log", "/storage/emulated/0/Android/data/gradle_build_cache_unzip.log", 18400000L, isFolder = false),
-                JunkItem("j3", "temp_icon_shards.bin", "/storage/emulated/0/Android/data/temp_icon_shards.bin", 8900000L, isFolder = false),
-                JunkItem("j4", ".webview_shards_cache", "/storage/emulated/0/WebView/Cache/.webview_shards_cache", 4200000L, isFolder = false),
-                JunkItem("f1", "lost+found", "/storage/emulated/0/Android/data/lost+found", 0L, isFolder = true),
-                JunkItem("f2", "empty_downloads_temp", "/storage/emulated/0/Download/empty_downloads_temp", 0L, isFolder = true),
-                JunkItem("f3", ".empty_album", "/storage/emulated/0/DCIM/Camera/.empty_album", 0L, isFolder = true)
-            )
+            
+            val context = getApplication<Application>()
+            val tempJunk = JunkScannerUtils.scanTempAndCacheFiles(context)
+            val emptyFolders = JunkScannerUtils.scanEmptyDirectories(context)
+            
+            scannedJunkItems.value = tempJunk + emptyFolders
             isJunkScanning.value = false
         }
     }
