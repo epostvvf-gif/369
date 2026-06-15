@@ -61,10 +61,32 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     // --- State Variables for Local File Manager ---
+    val selectedStoragePartition = MutableStateFlow("Internal") // "Internal" or "SD Card"
     val allLocalFiles = repository.allFiles.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val normalFiles = repository.normalFiles.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val safeFiles = repository.safeFiles.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val junkFiles = repository.junkFiles.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    
+    val normalFiles = combine(repository.normalFiles, selectedStoragePartition) { files, partition ->
+        if (partition == "SD Card") {
+            files.filter { it.path.startsWith("/sdcard") }
+        } else {
+            files.filter { !it.path.startsWith("/sdcard") }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val safeFiles = combine(repository.safeFiles, selectedStoragePartition) { files, partition ->
+        if (partition == "SD Card") {
+            files.filter { it.path.startsWith("/sdcard") }
+        } else {
+            files.filter { !it.path.startsWith("/sdcard") }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val junkFiles = combine(repository.junkFiles, selectedStoragePartition) { files, partition ->
+        if (partition == "SD Card") {
+            files.filter { it.path.startsWith("/sdcard") }
+        } else {
+            files.filter { !it.path.startsWith("/sdcard") }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val searchQuery = MutableStateFlow("")
     val selectedLocalFileIds = MutableStateFlow<Set<Int>>(emptySet())
@@ -150,37 +172,56 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             val currentList = repository.allFiles.first()
             if (currentList.isEmpty()) {
                 val seedData = listOf(
-                    // Normal Files
+                    // Normal Files (Internal Storage)
                     FileEntity(name = "Vishwa_Foundation_Proposal.docx", path = "/docs/Vishwa_Foundation_Proposal.docx", mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document", size = 1845000, category = "Documents"),
                     FileEntity(name = "Tax_Exemption_Certificate_2026.pdf", path = "/docs/Tax_Exemption_Certificate_2026.pdf", mimeType = "application/pdf", size = 2560000, category = "Documents"),
                     FileEntity(name = "Financial_Ledger_Q1.xlsx", path = "/docs/Financial_Ledger_Q1.xlsx", mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size = 4120000, category = "Documents"),
                     
-                    // Duplicate Documents (To trigger Duplicate Scanner visual pairings!)
+                    // Duplicate Documents (To trigger Duplicate Scanner!)
                     FileEntity(name = "Tax_Exemption_Certificate_Backup_Copy.pdf", path = "/docs/Tax_Exemption_Certificate_Backup_Copy.pdf", mimeType = "application/pdf", size = 2560000, category = "Documents"),
                     
-                    // Images
+                    // Images (Internal)
                     FileEntity(name = "vishwa_vijayaa_logo.png", path = "/images/vishwa_vijayaa_logo.png", mimeType = "image/png", size = 840000, category = "Images"),
                     FileEntity(name = "foundation_event_primary.jpg", path = "/images/foundation_event_primary.jpg", mimeType = "image/jpeg", size = 3200000, category = "Images"),
                     
                     // Duplicate Images
                     FileEntity(name = "vishwa_vijayaa_logo_v2.png", path = "/images/vishwa_vijayaa_logo_v2.png", mimeType = "image/png", size = 840000, category = "Images"),
 
-                    // Audio
+                    // Audio (Internal)
                     FileEntity(name = "morning_conch_chants.mp3", path = "/audio/morning_conch_chants.mp3", mimeType = "audio/mpeg", size = 9520000, category = "Audio"),
                     FileEntity(name = "meditation_ambient_wind.wav", path = "/audio/meditation_ambient_wind.wav", mimeType = "audio/wav", size = 24800000, category = "Audio"),
 
-                    // Videos
+                    // Videos (Internal)
                     FileEntity(name = "vishwa_vijayaa_foundation_anthem.mp4", path = "/videos/vishwa_vijayaa_foundation_anthem.mp4", mimeType = "video/mp4", size = 105800000, category = "Videos"),
 
-                    // Others category - Uncategorized files to be organized by AI
+                    // Others category (Internal)
                     FileEntity(name = "vishwa_yearly_audit.txt", path = "/docs/vishwa_yearly_audit.txt", mimeType = "text/plain", size = 450000, category = "Others"),
                     FileEntity(name = "sunset_sea_snapshot.jpeg", path = "/images/sunset_sea_snapshot.jpeg", mimeType = "image/jpeg", size = 1250000, category = "Others"),
                     FileEntity(name = "vedic_hymns_recording.mp3", path = "/audio/vedic_hymns_recording.mp3", mimeType = "audio/mpeg", size = 5600000, category = "Others"),
 
-                    // Junk stuff (For manual cleaner animations)
+                    // Junk stuff (Internal)
                     FileEntity(name = "cache_compiler_dump.tmp", path = "/junk/cache_compiler_dump.tmp", mimeType = "text/plain", size = 12500000, isJunk = true, category = "Others"),
                     FileEntity(name = "gradle_build_cache_unzip.log", path = "/junk/gradle_build_cache_unzip.log", mimeType = "text/plain", size = 18400000, isJunk = true, category = "Others"),
-                    FileEntity(name = "temp_icon_shards.bin", path = "/junk/temp_icon_shards.bin", mimeType = "application/octet-stream", size = 8900000, isJunk = true, category = "Others")
+                    FileEntity(name = "temp_icon_shards.bin", path = "/junk/temp_icon_shards.bin", mimeType = "application/octet-stream", size = 8900000, isJunk = true, category = "Others"),
+
+                    // --- SD CARD SPECIFIC FILES (Path starts with /sdcard) ---
+                    FileEntity(name = "sdcard_financial_ledger_backup.xlsx", path = "/sdcard/docs/sdcard_financial_ledger_backup.xlsx", mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size = 3200000, category = "Documents"),
+                    FileEntity(name = "sdcard_trustee_onboarding.pdf", path = "/sdcard/docs/sdcard_trustee_onboarding.pdf", mimeType = "application/pdf", size = 1850000, category = "Documents"),
+                    FileEntity(name = "sdcard_himalaya_expedition_pitch.pdf", path = "/sdcard/docs/sdcard_himalaya_expedition_pitch.pdf", mimeType = "application/pdf", size = 4500000, category = "Documents"),
+                    
+                    FileEntity(name = "sdcard_ayurvedic_herb_catalog.jpg", path = "/sdcard/images/sdcard_ayurvedic_herb_catalog.jpg", mimeType = "image/jpeg", size = 5200000, category = "Images"),
+                    FileEntity(name = "sdcard_vishwa_avatar_snap.png", path = "/sdcard/images/sdcard_vishwa_avatar_snap.png", mimeType = "image/png", size = 1100000, category = "Images"),
+                    
+                    FileEntity(name = "sdcard_nature_ambient_birdsong.mp3", path = "/sdcard/audio/sdcard_nature_ambient_birdsong.mp3", mimeType = "audio/mpeg", size = 12500000, category = "Audio"),
+                    FileEntity(name = "sdcard_haridwar_drone_shot.mp4", path = "/sdcard/videos/sdcard_haridwar_drone_shot.mp4", mimeType = "video/mp4", size = 89000000, category = "Videos"),
+                    
+                    FileEntity(name = "sdcard_raw_log_dump_others.txt", path = "/sdcard/docs/sdcard_raw_log_dump_others.txt", mimeType = "text/plain", size = 320000, category = "Others"),
+                    
+                    // Duplicate matches on SD Card
+                    FileEntity(name = "sdcard_ayurvedic_herb_catalog_duplicate.jpg", path = "/sdcard/images/sdcard_ayurvedic_herb_catalog_duplicate.jpg", mimeType = "image/jpeg", size = 5200000, category = "Images"),
+
+                    // Junk items on SD Card
+                    FileEntity(name = "sdcard_lost_found_recovery.tmp", path = "/sdcard/junk/sdcard_lost_found_recovery.tmp", mimeType = "text/plain", size = 15300000, isJunk = true, category = "Others")
                 )
                 repository.insertFiles(seedData)
             }
