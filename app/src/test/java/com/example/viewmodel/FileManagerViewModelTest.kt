@@ -103,4 +103,22 @@ class FileManagerViewModelTest {
         // After successful confirmation, pin is registered
         assertTrue(viewModel.isPinRegistered.value)
     }
+
+    @Test
+    fun testCloudToggleSync() = runBlocking {
+        // Retrieve initial list from flow
+        val files = viewModel.cloudFiles.first()
+        assertTrue("Cloud files should be loaded", files.isNotEmpty())
+
+        val targetFile = files.first()
+        val originalSyncState = targetFile.isSynced
+
+        // Perform the sync switch toggle
+        viewModel.toggleCloudFileSyncState(targetFile.id)
+
+        // Retrieve the updated list and confirm sync state flipped
+        val updatedFiles = viewModel.cloudFiles.first()
+        val updatedFile = updatedFiles.first { it.id == targetFile.id }
+        assertEquals(!originalSyncState, updatedFile.isSynced)
+    }
 }

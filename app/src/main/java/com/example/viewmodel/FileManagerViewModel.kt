@@ -21,7 +21,8 @@ data class CloudFile(
     val name: String,
     val size: Long,
     val dateUpdated: Long,
-    val semanticScore: Int? = null // Contextual match percentage (AI calculation scan)
+    val semanticScore: Int? = null, // Contextual match percentage (AI calculation scan)
+    val isSynced: Boolean = false // Toggleable sync state for simulated Google Drive integration
 )
 
 // Data class for Chat messages
@@ -143,6 +144,8 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     val selectedCloudFileIds = MutableStateFlow<Set<String>>(emptySet())
     val isCloudScanning = MutableStateFlow(false)
     val cloudScanProgress = MutableStateFlow(0f)
+    val isAutoSyncEnabled = MutableStateFlow(true) // Global simulated auto sync switch
+    val simulateWifiOnlySync = MutableStateFlow(true) // Wi-Fi constraint toggle
 
     // Simulated cloud file listing
     private val baseCloudFiles = MutableStateFlow<List<CloudFile>>(emptyList())
@@ -255,11 +258,11 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun initializeCloudFiles() {
         baseCloudFiles.value = listOf(
-            CloudFile("c1", "Cloud_Vishwa_Brochure_M3.pdf", 4890000, System.currentTimeMillis() - 86400000 * 2),
-            CloudFile("c2", "Donor_List_2026_Seeded.xlsx", 1250000, System.currentTimeMillis() - 86400000 * 12),
-            CloudFile("c3", "Trustee_Resolutions_Signed.pdf", 5600000, System.currentTimeMillis() - 86400000 * 1),
-            CloudFile("c4", "Foundation_Theme_Chants_Chords.wav", 45200000, System.currentTimeMillis() - 86400000 * 5),
-            CloudFile("c5", "unauthorized_unused_duplicate.pdf", 5600000, System.currentTimeMillis() - 86400000 * 8) // Identical size warning
+            CloudFile("c1", "Cloud_Vishwa_Brochure_M3.pdf", 4890000, System.currentTimeMillis() - 86400000 * 2, isSynced = true),
+            CloudFile("c2", "Donor_List_2026_Seeded.xlsx", 1250000, System.currentTimeMillis() - 86400000 * 12, isSynced = false),
+            CloudFile("c3", "Trustee_Resolutions_Signed.pdf", 5600000, System.currentTimeMillis() - 86400000 * 1, isSynced = true),
+            CloudFile("c4", "Foundation_Theme_Chants_Chords.wav", 45200000, System.currentTimeMillis() - 86400000 * 5, isSynced = false),
+            CloudFile("c5", "unauthorized_unused_duplicate.pdf", 5600000, System.currentTimeMillis() - 86400000 * 8, isSynced = false) // Identical size warning
         )
     }
 
@@ -594,6 +597,16 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         val newId = "cloud_${System.currentTimeMillis()}"
         val newFile = CloudFile(newId, name, sizeRaw, System.currentTimeMillis())
         baseCloudFiles.value = baseCloudFiles.value + newFile
+    }
+
+    fun toggleCloudFileSyncState(id: String) {
+        baseCloudFiles.value = baseCloudFiles.value.map { file ->
+            if (file.id == id) {
+                file.copy(isSynced = !file.isSynced)
+            } else {
+                file
+            }
+        }
     }
 
     // --- Semantic Active Cloud Scan with Match Score computation ---

@@ -31,7 +31,10 @@ import com.example.viewmodel.CloudFile
 import com.example.viewmodel.FileManagerViewModel
 
 @Composable
-fun DriveScreen(viewModel: FileManagerViewModel) {
+fun DriveScreen(
+    viewModel: FileManagerViewModel,
+    onMenuClick: () -> Unit = {} // Force clear cache comment
+) {
     val cloudFiles by viewModel.cloudFiles.collectAsStateWithLifecycle()
     val accounts by viewModel.cloudAccounts.collectAsStateWithLifecycle()
     val activeAccount by viewModel.selectedCloudAccount.collectAsStateWithLifecycle()
@@ -48,10 +51,10 @@ fun DriveScreen(viewModel: FileManagerViewModel) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 80.dp) // Leave height for navigation bar
+                .padding(bottom = 8.dp) // Leave height for navigation bar
         ) {
             // Screen Title Banner
-            CloudBanner()
+            CloudBanner(onMenuClick = onMenuClick)
 
             val accountVal = activeAccount
             if (accountVal == null) {
@@ -69,6 +72,12 @@ fun DriveScreen(viewModel: FileManagerViewModel) {
                 ActiveAccountProfileCard(
                     account = accountVal,
                     onSwitchClick = { showAccountDialog = true }
+                )
+
+                // Cloud Storage & Sync Dashboard Status simulation
+                CloudStorageDashboardCard(
+                    cloudFiles = cloudFiles,
+                    viewModel = viewModel
                 )
 
                 // High-Thinking Semantic AI Scan dashboard card
@@ -152,7 +161,7 @@ fun DriveScreen(viewModel: FileManagerViewModel) {
 
 // --- Cloud Banner Title Header ---
 @Composable
-fun CloudBanner() {
+fun CloudBanner(onMenuClick: () -> Unit = {}) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -164,9 +173,20 @@ fun CloudBanner() {
                     )
                 )
             )
-            .padding(16.dp)
+            .padding(top = 16.dp, start = 12.dp, end = 16.dp, bottom = 16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = onMenuClick,
+                modifier = Modifier.testTag("btn_open_menu")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Menu,
+                    contentDescription = "Open Navigation Drawer",
+                    tint = Color.White
+                )
+            }
+            Spacer(modifier = Modifier.width(6.dp))
             Box(
                 modifier = Modifier
                     .size(40.dp)
@@ -353,6 +373,195 @@ fun ActiveAccountProfileCard(
                 modifier = Modifier.testTag("switch_account_trigger")
             ) {
                 Text("Switch User", fontSize = 11.sp, color = Color.White)
+            }
+        }
+    }
+}
+
+// --- CLOUD STORAGE STATUS & SYNC DASHBOARD CARD ---
+@Composable
+fun CloudStorageDashboardCard(
+    cloudFiles: List<CloudFile>,
+    viewModel: FileManagerViewModel
+) {
+    val isAutoSync by viewModel.isAutoSyncEnabled.collectAsStateWithLifecycle()
+    val isWifiOnly by viewModel.simulateWifiOnlySync.collectAsStateWithLifecycle()
+
+    // Calculate total used space: standard overhead (e.g. 7.96 GB) + dynamically added mock files size
+    val baseOverhead = 7_960_000_000L // 7.96 GB general overhead to make simulate data look authentic
+    val dynamicFilesSize = cloudFiles.sumOf { it.size }
+    val totalUsedBytes = baseOverhead + dynamicFilesSize
+    val totalLimitBytes = 15_000_000_000L // 15 GB Limit
+
+    val usageProgress = (totalUsedBytes.toFloat() / totalLimitBytes.toFloat()).coerceIn(0f, 1f)
+    val formattedUsed = viewModel.formatFileSize(totalUsedBytes)
+    val formattedLimit = viewModel.formatFileSize(totalLimitBytes)
+
+    var showSyncSettings by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(AquaticWaveBlue.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.CloudQueue,
+                            contentDescription = null,
+                            tint = AquaticWaveBlue,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Cloud Storage Status",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black
+                        )
+                        Text(
+                            text = "Google Drive Sandbox",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = { showSyncSettings = !showSyncSettings },
+                    modifier = Modifier.testTag("btn_sync_settings")
+                ) {
+                    Icon(
+                        if (showSyncSettings) Icons.Default.ExpandLess else Icons.Default.Settings,
+                        contentDescription = "Sync settings",
+                        tint = AquaticWaveBlue
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Progress Bar & Labels
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Used: $formattedUsed of $formattedLimit",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+                Text(
+                    text = "${(usageProgress * 100).toInt()}% Used",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AquaticWaveBlue
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            LinearProgressIndicator(
+                progress = { usageProgress },
+                color = AquaticWaveBlue,
+                trackColor = CosmicPrimary.copy(alpha = 0.2f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(CircleShape)
+            )
+
+            // Category break down simulation
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                val spaceText = if (usageProgress < 0.6f) "Secure & spacious capacity." else "Storage space is scaling up. Optimize soon!"
+                Icon(Icons.Default.Info, contentDescription = null, tint = TextGray, modifier = Modifier.size(14.dp))
+                Text(
+                    text = "$spaceText Synced files are kept safe offline.",
+                    fontSize = 11.sp,
+                    color = TextGray
+                )
+            }
+
+            // Sync Settings Panel (expanding section)
+            AnimatedVisibility(
+                visible = showSyncSettings,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp)
+                        .background(DeepSurfaceDark, shape = RoundedCornerShape(12.dp))
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = "Simulated Sync Settings",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CustomFlameOrange
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Automatic background mirror", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text("Auto uploads files when sync state toggled", fontSize = 10.sp, color = TextGray)
+                        }
+                        Switch(
+                            checked = isAutoSync,
+                            onCheckedChange = { viewModel.isAutoSyncEnabled.value = it },
+                            modifier = Modifier.testTag("switch_auto_sync")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Sync on Wi-Fi Only", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text("Throttle syncing when on mobile network", fontSize = 10.sp, color = TextGray)
+                        }
+                        Switch(
+                            checked = isWifiOnly,
+                            onCheckedChange = { viewModel.simulateWifiOnlySync.value = it },
+                            modifier = Modifier.testTag("switch_wifi_sync")
+                        )
+                    }
+                }
             }
         }
     }
@@ -609,6 +818,23 @@ fun CloudFilesSection(
                             color = TextGray
                         )
                     }
+
+                    // Sync state toggle icon button
+                    IconButton(
+                        onClick = { viewModel.toggleCloudFileSyncState(file.id) },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("btn_sync_toggle_${file.id}")
+                    ) {
+                        Icon(
+                            imageVector = if (file.isSynced) Icons.Default.CloudDone else Icons.Default.CloudQueue,
+                            contentDescription = "Toggle Sync State",
+                            tint = if (file.isSynced) ForestEcoGreen else Color.Gray.copy(alpha = 0.6f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
 
                     // Score Badge showing calculated AI similarity percentages if scanning done
                     if (file.semanticScore != null) {

@@ -33,7 +33,10 @@ import com.example.viewmodel.FileManagerViewModel
 import kotlinx.coroutines.launch
 
 @Composable
-fun AIScreen(viewModel: FileManagerViewModel) {
+fun AIScreen(
+    viewModel: FileManagerViewModel,
+    onMenuClick: () -> Unit = {}
+) {
     val messages by viewModel.chatbotMessages.collectAsStateWithLifecycle()
     val customKey by viewModel.geminiApiKey.collectAsStateWithLifecycle()
     val useHighThinking by viewModel.useHighThinking.collectAsStateWithLifecycle()
@@ -55,10 +58,10 @@ fun AIScreen(viewModel: FileManagerViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(bottom = 80.dp) // Bottom padding for navigation tabs
+            .padding(bottom = 8.dp) // Bottom padding
     ) {
         // Screen Header Banners
-        AIHeaderBanner()
+        AIHeaderBanner(onMenuClick = onMenuClick)
 
         // 1. Collapsible Gemini Setup Panel
         Card(
@@ -342,7 +345,7 @@ fun AIScreen(viewModel: FileManagerViewModel) {
 
 // --- Screen Header Banner ---
 @Composable
-fun AIHeaderBanner() {
+fun AIHeaderBanner(onMenuClick: () -> Unit = {}) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -354,9 +357,20 @@ fun AIHeaderBanner() {
                     )
                 )
             )
-            .padding(16.dp)
+            .padding(top = 16.dp, start = 12.dp, end = 16.dp, bottom = 16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = onMenuClick,
+                modifier = Modifier.testTag("btn_open_menu")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Menu,
+                    contentDescription = "Open Navigation Drawer",
+                    tint = Color.White
+                )
+            }
+            Spacer(modifier = Modifier.width(6.dp))
             Box(
                 modifier = Modifier
                     .size(40.dp)

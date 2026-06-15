@@ -38,7 +38,10 @@ import com.example.viewmodel.JunkItem
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MainScreen(viewModel: FileManagerViewModel) {
+fun MainScreen(
+    viewModel: FileManagerViewModel,
+    onMenuClick: () -> Unit = {} // Force clear cache comment
+) {
     val normalFiles by viewModel.normalFiles.collectAsStateWithLifecycle()
     val junkFiles by viewModel.junkFiles.collectAsStateWithLifecycle()
     val safeFiles by viewModel.safeFiles.collectAsStateWithLifecycle()
@@ -70,10 +73,10 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 80.dp) // Bottom padding for navigation
+                .padding(bottom = 8.dp) // Bottom padding
         ) {
             // App Core Branding Header
-            BrandingHeader()
+            BrandingHeader(onMenuClick = onMenuClick)
 
             if (inSafeViewMode) {
                 // Secure Folder Screen Inside Main Area
@@ -199,7 +202,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
 
 // --- Visual Branding Header matching Logo vibe ---
 @Composable
-fun BrandingHeader() {
+fun BrandingHeader(onMenuClick: () -> Unit = {}) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -211,12 +214,23 @@ fun BrandingHeader() {
                     )
                 )
             )
-            .padding(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 12.dp)
+            .padding(top = 16.dp, start = 12.dp, end = 16.dp, bottom = 12.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
+            IconButton(
+                onClick = onMenuClick,
+                modifier = Modifier.testTag("btn_open_menu")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Menu,
+                    contentDescription = "Open Navigation Menu",
+                    tint = Color.White
+                )
+            }
+            Spacer(modifier = Modifier.width(6.dp))
             // Left brand icon representing the fire wheel & water logo
             Box(
                 modifier = Modifier
