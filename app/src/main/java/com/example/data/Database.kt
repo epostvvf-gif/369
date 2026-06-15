@@ -29,6 +29,9 @@ interface FileDao {
     @Query("SELECT * FROM local_files WHERE isSafe = 0 AND isJunk = 0 ORDER BY timestamp DESC")
     fun getNormalFiles(): Flow<List<FileEntity>>
 
+    @Query("SELECT * FROM local_files WHERE isSafe = 0 AND isJunk = 0 AND name LIKE :query ORDER BY timestamp DESC")
+    fun getNormalFilesByNameLike(query: String): Flow<List<FileEntity>>
+
     @Query("SELECT * FROM local_files WHERE isSafe = 1 ORDER BY timestamp DESC")
     fun getSafeFiles(): Flow<List<FileEntity>>
 

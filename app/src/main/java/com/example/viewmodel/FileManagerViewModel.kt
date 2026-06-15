@@ -266,22 +266,30 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     // --- Search with Custom Match Percentage scoring calculation ---
     // Calculates how heavily the characters in the search query match this file's name.
     // Returns a dynamic matched score list of Pairs
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun calculateSearchMatchesFlow(): Flow<List<Pair<FileEntity, Double>>> {
-        return combine(normalFiles, searchQuery, fileExplorerMode, explorerSelectedFolder) { files, query, mode, folder ->
-            val scopedFiles = if (mode == "Folders" && folder != null) {
-                files.filter { it.category == folder }
+        return searchQuery.flatMapLatest { query ->
+            val dbSourceFlow = if (query.isBlank()) {
+                normalFiles
             } else {
-                files
+                repository.getNormalFilesByNameLike("%$query%")
             }
-            if (query.isBlank()) {
-                scopedFiles.map { it to 100.0 }
-            } else {
-                scopedFiles.map { file ->
-                    val percentage = getCustomSearchMatchRatio(file.name, query)
-                    file to percentage
+            combine(dbSourceFlow, fileExplorerMode, explorerSelectedFolder) { files, mode, folder ->
+                val scopedFiles = if (mode == "Folders" && folder != null) {
+                    files.filter { it.category == folder }
+                } else {
+                    files
                 }
-                .filter { it.second > 0.0 }
-                .sortedByDescending { it.second } // Best match calculation first!
+                if (query.isBlank()) {
+                    scopedFiles.map { it to 100.0 }
+                } else {
+                    scopedFiles.map { file ->
+                        val percentage = getCustomSearchMatchRatio(file.name, query)
+                        file to percentage
+                    }
+                    .filter { it.second > 0.0 }
+                    .sortedByDescending { it.second } // Best match calculation first!
+                }
             }
         }
     }

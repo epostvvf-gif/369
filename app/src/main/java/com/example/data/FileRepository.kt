@@ -10,6 +10,8 @@ class FileRepository(private val fileDao: FileDao) {
     val junkFiles: Flow<List<FileEntity>> = fileDao.getJunkFiles()
     val allFiles: Flow<List<FileEntity>> = fileDao.getAllFiles()
 
+    fun getNormalFilesByNameLike(query: String): Flow<List<FileEntity>> = fileDao.getNormalFilesByNameLike(query)
+
     suspend fun insertFile(file: FileEntity) = fileDao.insertFile(file)
     suspend fun insertFiles(files: List<FileEntity>) = fileDao.insertFiles(files)
     suspend fun deleteFiles(files: List<FileEntity>) = fileDao.deleteFiles(files)
