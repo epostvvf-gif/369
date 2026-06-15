@@ -32,6 +32,16 @@ data class ChatMessage(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+// Data class for detailed Scanning Junk item
+data class JunkItem(
+    val id: String,
+    val name: String,
+    val path: String,
+    val size: Long,
+    val isFolder: Boolean,
+    val isChecked: Boolean = true
+)
+
 sealed interface PinMode {
     object Register : PinMode
     object Confirm : PinMode
@@ -64,6 +74,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     val isJunkCleaning = MutableStateFlow(false)
     val showCelebrationDialog = MutableStateFlow(false)
     val junkBytesCleaned = MutableStateFlow(0L)
+    val showJunkCleaner = MutableStateFlow(false)
+    val isJunkScanning = MutableStateFlow(false)
+    val scannedJunkItems = MutableStateFlow<List<JunkItem>>(emptyList())
 
     // --- Duplicate Scanner States ---
     val showDuplicateScanner = MutableStateFlow(false)
@@ -100,6 +113,13 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             ChatMessage("welcome", "Hello! I am your AI Smart Space Assistant. Ask me anything about files, space savings, or let me guide you mathematically with High Thinking operations! 🚀", false)
         )
     )
+    val isChatDrawerOpen = MutableStateFlow(false)
+    val chatDrawerMessages = MutableStateFlow<List<ChatMessage>>(
+        listOf(
+            ChatMessage("welcome_drawer", "Hello! I am your interactive File AI Assistant, activated via the floating quick-access drawer. Ask me any natural language question about your local files, categorizations, or space savings! 📂✨", false)
+        )
+    )
+    val isSendingDrawerToGemini = MutableStateFlow(false)
     val geminiApiKey = MutableStateFlow("")
     val useHighThinking = MutableStateFlow(true)
     val isSendingToGemini = MutableStateFlow(false)
@@ -301,6 +321,51 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             
             repository.clearAllJunk()
             isJunkCleaning.value = false
+            showCelebrationDialog.value = true
+        }
+    }
+
+    fun startJunkScan() {
+        viewModelScope.launch {
+            isJunkScanning.value = true
+            delay(1500) // Simulated scan delay
+            scannedJunkItems.value = listOf(
+                JunkItem("j1", "cache_compiler_dump.tmp", "/storage/emulated/0/Android/data/cache_compiler_dump.tmp", 12500000L, isFolder = false),
+                JunkItem("j2", "gradle_build_cache_unzip.log", "/storage/emulated/0/Android/data/gradle_build_cache_unzip.log", 18400000L, isFolder = false),
+                JunkItem("j3", "temp_icon_shards.bin", "/storage/emulated/0/Android/data/temp_icon_shards.bin", 8900000L, isFolder = false),
+                JunkItem("j4", ".webview_shards_cache", "/storage/emulated/0/WebView/Cache/.webview_shards_cache", 4200000L, isFolder = false),
+                JunkItem("f1", "lost+found", "/storage/emulated/0/Android/data/lost+found", 0L, isFolder = true),
+                JunkItem("f2", "empty_downloads_temp", "/storage/emulated/0/Download/empty_downloads_temp", 0L, isFolder = true),
+                JunkItem("f3", ".empty_album", "/storage/emulated/0/DCIM/Camera/.empty_album", 0L, isFolder = true)
+            )
+            isJunkScanning.value = false
+        }
+    }
+
+    fun toggleJunkItem(id: String) {
+        val current = scannedJunkItems.value
+        scannedJunkItems.value = current.map {
+            if (it.id == id) it.copy(isChecked = !it.isChecked) else it
+        }
+    }
+
+    fun cleanSelectedJunk() {
+        viewModelScope.launch {
+            isJunkCleaning.value = true
+            val checkedItems = scannedJunkItems.value.filter { it.isChecked }
+            val sizeToClean = checkedItems.sumOf { it.size }
+            junkBytesCleaned.value = sizeToClean
+            
+            delay(2000) // Simulated physical removal delay
+            
+            // Reclaim by clearing Room DB junk files
+            repository.clearAllJunk()
+            
+            // Keep unchecked items, remove checked ones
+            scannedJunkItems.value = scannedJunkItems.value.filter { !it.isChecked }
+            
+            isJunkCleaning.value = false
+            showJunkCleaner.value = false
             showCelebrationDialog.value = true
         }
     }
@@ -524,6 +589,87 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             chatbotMessages.value = chatbotMessages.value + aiMsg
             isSendingToGemini.value = false
         }
+    }
+
+    fun getLocalFilesContext(): String {
+        val files = normalFiles.value
+        val duplicates = getDuplicateFileGroupings()
+        val junkSz = junkFiles.value.sumOf { it.size }
+        val safeCount = safeFiles.value.size
+        
+        val fileList = if (files.isEmpty()) {
+            "No files configured currently in the main storage of the device."
+        } else {
+            files.joinToString("\n") { 
+                "- Name: ${it.name}, Path: ${it.path}, Class: ${it.category}, Size: ${formatFileSize(it.size)}"
+            }
+        }
+        
+        val duplicateDetails = if (duplicates.isEmpty()) {
+            "No duplicate files detected."
+        } else {
+            duplicates.map { (size, list) ->
+                "Files with size ${formatFileSize(size)} are duplicated: " + list.joinToString(", ") { it.name }
+            }.joinToString("\n")
+        }
+
+        return """
+            You are the "Smart File & Cloud Manager" AI Assistant.
+            
+            Current Local Storage Context:
+            - Normal Files Listed:
+            $fileList
+            
+            - Duplicate File Groupings Detected:
+            $duplicateDetails
+            
+            - Current Junk Reclaimable: ${formatFileSize(junkSz)} (${junkFiles.value.size} temporary artifacts)
+            - Secure Vault Protected Files Count: $safeCount
+            
+            Please use this file list precisely to answer user questions about their items (such as listing files, counting them, finding duplicates, locating large files, recommending clean setups, etc.). Speak conversationally, clearly, and concisely. Keep formatting neat with bullet points!
+        """.trimIndent()
+    }
+
+    fun sendDrawerChatMessage(textInput: String) {
+        val query = textInput.trim()
+        if (query.isBlank()) return
+
+        val userMsgId = "drawer_msg_user_${System.currentTimeMillis()}"
+        val userMsg = ChatMessage(userMsgId, query, isUser = true)
+        
+        chatDrawerMessages.value = chatDrawerMessages.value + userMsg
+        isSendingDrawerToGemini.value = true
+
+        viewModelScope.launch {
+            val localContext = getLocalFilesContext()
+            val fullPrompt = "$localContext\n\nUser Question:\n$query"
+
+            // Get historical lines
+            val historyContents = chatDrawerMessages.value.filter { it.id != userMsgId && it.id != "welcome_drawer" }.map { 
+                Content(parts = listOf(Part(text = it.text)))
+            }
+
+            val aiResponseText = repository.askGemini(
+                prompt = fullPrompt,
+                customKey = geminiApiKey.value,
+                useHighThinking = useHighThinking.value,
+                history = historyContents
+            )
+
+            val aiMsg = ChatMessage(
+                id = "drawer_msg_ai_${System.currentTimeMillis()}",
+                text = aiResponseText,
+                isUser = false
+            )
+            chatDrawerMessages.value = chatDrawerMessages.value + aiMsg
+            isSendingDrawerToGemini.value = false
+        }
+    }
+
+    fun clearDrawerChatHistory() {
+        chatDrawerMessages.value = listOf(
+            ChatMessage("welcome_drawer", "Hello! I am your interactive File AI Assistant, activated via the floating quick-access drawer. Ask me any natural language question about your local files, categorizations, or space savings! 📂✨", false)
+        )
     }
 
     // --- Dynamic formatters inside state layer ---

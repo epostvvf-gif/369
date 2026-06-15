@@ -34,6 +34,7 @@ import com.example.data.FileEntity
 import com.example.ui.theme.*
 import com.example.viewmodel.FileManagerViewModel
 import com.example.viewmodel.PinMode
+import com.example.viewmodel.JunkItem
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -53,6 +54,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     val showCelebrationDialog by viewModel.showCelebrationDialog.collectAsStateWithLifecycle()
     val junkBytesCleaned by viewModel.junkBytesCleaned.collectAsStateWithLifecycle()
     val showDuplicateScanner by viewModel.showDuplicateScanner.collectAsStateWithLifecycle()
+    val showJunkCleaner by viewModel.showJunkCleaner.collectAsStateWithLifecycle()
 
     // Safe state
     val isPinRegistered by viewModel.isPinRegistered.collectAsStateWithLifecycle()
@@ -101,7 +103,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                 // Quick smart utilities toolbar
                 SmartUtilitiesRow(
                     junkFiles = junkFiles,
-                    onCleanJunk = { viewModel.runManualJunkCleaner() },
+                    onCleanJunk = { viewModel.showJunkCleaner.value = true },
                     onOpenDuplicates = { viewModel.showDuplicateScanner.value = true },
                     onOpenSafe = { inSafeViewMode = true }
                 )
@@ -171,6 +173,14 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             DuplicateScannerDialog(
                 viewModel = viewModel,
                 onDismiss = { viewModel.showDuplicateScanner.value = false }
+            )
+        }
+
+        // Junk Cleaner Scanner Dialog
+        if (showJunkCleaner) {
+            JunkCleanerDialog(
+                viewModel = viewModel,
+                onDismiss = { viewModel.showJunkCleaner.value = false }
             )
         }
 
@@ -1093,6 +1103,242 @@ fun DuplicateScannerDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun JunkCleanerDialog(
+    viewModel: FileManagerViewModel,
+    onDismiss: () -> Unit
+) {
+    val isJunkScanning by viewModel.isJunkScanning.collectAsStateWithLifecycle()
+    val scannedJunkItems by viewModel.scannedJunkItems.collectAsStateWithLifecycle()
+    
+    // Trigger scan on entry
+    LaunchedEffect(Unit) {
+        viewModel.startJunkScan()
+    }
+    
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f)
+                .padding(vertical = 16.dp)
+                .testTag("junk_cleaner_dialog")
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                
+                // Header Row
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.DeleteSweep,
+                            contentDescription = null,
+                            tint = CustomFlameOrange,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Junk Clean Scanner",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                if (isJunkScanning) {
+                    // Animating Scanning Circle/Text
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(color = CustomFlameOrange, modifier = Modifier.size(48.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Scanning system directories...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Searching for residual caches & empty folders.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextGray
+                        )
+                    }
+                } else {
+                    val checkedItems = scannedJunkItems.filter { it.isChecked }
+                    val totalReclaimableSize = checkedItems.sumOf { it.size }
+                    val cacheItems = scannedJunkItems.filter { !it.isFolder }
+                    val emptyFolders = scannedJunkItems.filter { it.isFolder }
+                    
+                    Text(
+                        text = "Scanned and found ${scannedJunkItems.size} items. Selected items will be deleted permanently.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextGray
+                    )
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Section: Cache files
+                        if (cacheItems.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "CACHE & TEMPORARY FILES (${cacheItems.size})",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CustomFlameOrange,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+                            }
+                            items(cacheItems) { item ->
+                                JunkItemRow(item = item, onToggle = { viewModel.toggleJunkItem(item.id) }, viewModel = viewModel)
+                            }
+                        }
+                        
+                        // Section: Empty folders
+                        if (emptyFolders.isNotEmpty()) {
+                            item {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "EMPTY SYSTEM FOLDER ENTRIES (${emptyFolders.size})",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AquaticWaveBlue,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+                            }
+                            items(emptyFolders) { item ->
+                                JunkItemRow(item = item, onToggle = { viewModel.toggleJunkItem(item.id) }, viewModel = viewModel)
+                            }
+                        }
+                        
+                        if (scannedJunkItems.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 40.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("No junk items or empty folders remain!", color = TextGray)
+                                }
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // Clean now button
+                    Button(
+                        onClick = { viewModel.cleanSelectedJunk() },
+                        colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("button_clean_now_junk"),
+                        enabled = checkedItems.isNotEmpty()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.DeleteForever, contentDescription = null, tint = Color.White)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Clean Now (${viewModel.formatFileSize(totalReclaimableSize)})",
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun JunkItemRow(
+    item: JunkItem,
+    onToggle: () -> Unit,
+    viewModel: FileManagerViewModel
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White.copy(alpha = 0.03f), RoundedCornerShape(12.dp))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Icon(
+            imageVector = if (item.isFolder) Icons.Default.FolderOpen else Icons.Default.InsertDriveFile,
+            contentDescription = null,
+            tint = if (item.isFolder) AquaticWaveBlue else TextGray,
+            modifier = Modifier.size(28.dp)
+        )
+        
+        Spacer(modifier = Modifier.width(12.dp))
+        
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = item.name,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = item.path,
+                fontSize = 11.sp,
+                color = TextGray,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(8.dp))
+        
+        Text(
+            text = if (item.isFolder) "0 B" else viewModel.formatFileSize(item.size),
+            fontSize = 12.sp,
+            color = if (item.isFolder) AquaticWaveBlue else Color.White.copy(alpha = 0.7f),
+            fontWeight = FontWeight.Medium
+        )
+        
+        Spacer(modifier = Modifier.width(8.dp))
+        
+        Checkbox(
+            checked = item.isChecked,
+            onCheckedChange = { onToggle() },
+            colors = CheckboxDefaults.colors(
+                checkedColor = CustomFlameOrange,
+                uncheckedColor = TextGray,
+                checkmarkColor = Color.White
+            )
+        )
     }
 }
 
