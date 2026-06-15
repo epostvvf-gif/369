@@ -23,11 +23,12 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          validate-wrappers: false
+
+      - name: Grant Execute Permission to Gradlew
+        run: chmod +x gradlew
 
       - name: Run Build (Compile Debug APK)
-        run: gradle assembleDebug
+        run: ./gradlew assembleDebug
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
