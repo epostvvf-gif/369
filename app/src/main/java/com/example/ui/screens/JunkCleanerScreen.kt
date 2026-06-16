@@ -29,6 +29,7 @@ import androidx.compose.ui.window.Dialog
 import com.example.ui.theme.*
 import com.example.viewmodel.FileManagerViewModel
 import com.example.viewmodel.JunkItem
+import com.example.GlobalProfileAvatarButton
 
 @Composable
 fun JunkCleanerScreen(
@@ -55,7 +56,7 @@ fun JunkCleanerScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Screen Header Banner with Navigation Hamburger Menu
-            JunkHeaderBanner(onMenuClick = onMenuClick)
+            JunkHeaderBanner(viewModel = viewModel, onMenuClick = onMenuClick)
 
             if (isJunkScanning) {
                 // Scanning view with pulsing circle animation & details
@@ -329,7 +330,10 @@ fun JunkCleanerScreen(
 val DynamicDarkM3PillColor = Color(0xFF1E2E52)
 
 @Composable
-fun JunkHeaderBanner(onMenuClick: () -> Unit) {
+fun JunkHeaderBanner(
+    viewModel: FileManagerViewModel,
+    onMenuClick: () -> Unit
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -343,7 +347,10 @@ fun JunkHeaderBanner(onMenuClick: () -> Unit) {
             )
             .padding(16.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             IconButton(
                 onClick = onMenuClick,
                 modifier = Modifier.testTag("btn_open_menu")
@@ -381,6 +388,8 @@ fun JunkHeaderBanner(onMenuClick: () -> Unit) {
                     color = CustomFlameOrange
                 )
             }
+            Spacer(modifier = Modifier.weight(1f))
+            GlobalProfileAvatarButton(viewModel = viewModel)
         }
     }
 }

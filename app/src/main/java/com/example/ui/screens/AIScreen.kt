@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.theme.*
 import com.example.viewmodel.ChatMessage
 import com.example.viewmodel.FileManagerViewModel
+import com.example.GlobalProfileAvatarButton
 import kotlinx.coroutines.launch
 
 @Composable
@@ -61,7 +62,7 @@ fun AIScreen(
             .padding(bottom = 8.dp) // Bottom padding
     ) {
         // Screen Header Banners
-        AIHeaderBanner(onMenuClick = onMenuClick)
+        AIHeaderBanner(viewModel = viewModel, onMenuClick = onMenuClick)
 
         // 1. Collapsible Gemini Setup Panel
         Card(
@@ -345,7 +346,10 @@ fun AIScreen(
 
 // --- Screen Header Banner ---
 @Composable
-fun AIHeaderBanner(onMenuClick: () -> Unit = {}) {
+fun AIHeaderBanner(
+    viewModel: FileManagerViewModel,
+    onMenuClick: () -> Unit = {}
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -359,7 +363,10 @@ fun AIHeaderBanner(onMenuClick: () -> Unit = {}) {
             )
             .padding(top = 16.dp, start = 12.dp, end = 16.dp, bottom = 16.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             IconButton(
                 onClick = onMenuClick,
                 modifier = Modifier.testTag("btn_open_menu")
@@ -401,6 +408,8 @@ fun AIHeaderBanner(onMenuClick: () -> Unit = {}) {
                     color = CustomFlameOrange
                 )
             }
+            Spacer(modifier = Modifier.weight(1f))
+            GlobalProfileAvatarButton(viewModel = viewModel)
         }
     }
 }

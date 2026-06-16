@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.theme.*
 import com.example.viewmodel.CloudFile
 import com.example.viewmodel.FileManagerViewModel
+import com.example.GlobalProfileAvatarButton
 
 @Composable
 fun DriveScreen(
@@ -43,8 +44,6 @@ fun DriveScreen(
     val isScanning by viewModel.isCloudScanning.collectAsStateWithLifecycle()
     val scanProgress by viewModel.cloudScanProgress.collectAsStateWithLifecycle()
 
-    var showAccountDialog by remember { mutableStateOf(false) }
-    var showAddAccountDialog by remember { mutableStateOf(false) }
     var showUploadCloudDialog by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -54,7 +53,7 @@ fun DriveScreen(
                 .padding(bottom = 8.dp) // Leave height for navigation bar
         ) {
             // Screen Title Banner
-            CloudBanner(onMenuClick = onMenuClick)
+            CloudBanner(viewModel = viewModel, onMenuClick = onMenuClick)
 
             val accountVal = activeAccount
             if (accountVal == null) {
@@ -71,7 +70,7 @@ fun DriveScreen(
                 // Display Active account switcher info card
                 ActiveAccountProfileCard(
                     account = accountVal,
-                    onSwitchClick = { showAccountDialog = true }
+                    onSwitchClick = { viewModel.showGlobalAccountSwitcher.value = true }
                 )
 
                 // Cloud Storage & Sync Dashboard Status simulation
@@ -84,7 +83,13 @@ fun DriveScreen(
                 SemanticScanDashboardCard(
                     isScanning = isScanning,
                     progress = scanProgress,
-                    onStartScan = { viewModel.startSemanticScan() }
+                    onStartScan = {
+                        if (viewModel.geminiApiKey.value.isBlank()) {
+                            viewModel.showApiKeyPromptDialogForScan.value = true
+                        } else {
+                            viewModel.startSemanticScan()
+                        }
+                    }
                 )
 
                 // Search Cloud files Bar
@@ -114,38 +119,6 @@ fun DriveScreen(
             }
         }
 
-        // Drop-up login profile switcher Dialog
-        if (showAccountDialog) {
-            AccountSwitcherDialog(
-                accounts = accounts,
-                selectedAccount = activeAccount,
-                onSelect = {
-                    viewModel.selectCloudAccount(it)
-                    showAccountDialog = false
-                },
-                onLogout = {
-                    viewModel.logoutFromCloudAccount()
-                    showAccountDialog = false
-                },
-                onAddNewClick = {
-                    showAddAccountDialog = true
-                    showAccountDialog = false
-                },
-                onDismiss = { showAccountDialog = false }
-            )
-        }
-
-        // Add account token login Dialog
-        if (showAddAccountDialog) {
-            OAuthLoginDialog(
-                onDismiss = { showAddAccountDialog = false },
-                onAddLoginSim = { email, token ->
-                    viewModel.addCloudAccount(email)
-                    showAddAccountDialog = false
-                }
-            )
-        }
-
         // Upload cloud dialog
         if (showUploadCloudDialog) {
             SimulatedCloudUploadDialog(
@@ -161,7 +134,10 @@ fun DriveScreen(
 
 // --- Cloud Banner Title Header ---
 @Composable
-fun CloudBanner(onMenuClick: () -> Unit = {}) {
+fun CloudBanner(
+    viewModel: FileManagerViewModel,
+    onMenuClick: () -> Unit = {}
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -175,7 +151,10 @@ fun CloudBanner(onMenuClick: () -> Unit = {}) {
             )
             .padding(top = 16.dp, start = 12.dp, end = 16.dp, bottom = 16.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             IconButton(
                 onClick = onMenuClick,
                 modifier = Modifier.testTag("btn_open_menu")
@@ -217,6 +196,8 @@ fun CloudBanner(onMenuClick: () -> Unit = {}) {
                     color = AquaticWaveBlue
                 )
             }
+            Spacer(modifier = Modifier.weight(1f))
+            GlobalProfileAvatarButton(viewModel = viewModel)
         }
     }
 }

@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.FileEntity
 import com.example.ui.theme.*
 import com.example.viewmodel.FileManagerViewModel
+import com.example.GlobalProfileAvatarButton
 import com.example.viewmodel.PinMode
 import com.example.viewmodel.JunkItem
 
@@ -76,7 +77,7 @@ fun MainScreen(
                 .padding(bottom = 8.dp) // Bottom padding
         ) {
             // App Core Branding Header
-            BrandingHeader(onMenuClick = onMenuClick)
+            BrandingHeader(viewModel = viewModel, onMenuClick = onMenuClick)
 
             if (inSafeViewMode) {
                 // Secure Folder Screen Inside Main Area
@@ -202,7 +203,10 @@ fun MainScreen(
 
 // --- Visual Branding Header matching Logo vibe ---
 @Composable
-fun BrandingHeader(onMenuClick: () -> Unit = {}) {
+fun BrandingHeader(
+    viewModel: FileManagerViewModel,
+    onMenuClick: () -> Unit = {}
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -276,27 +280,35 @@ fun BrandingHeader(onMenuClick: () -> Unit = {}) {
 
             Spacer(modifier = Modifier.weight(1.0f))
 
-            // Pulse badge indicator for active protection
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(ForestEcoGreen.copy(alpha = 0.2f))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Box(
+                // Pulse badge indicator for active protection
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(ForestEcoGreen)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "SECURE",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = ForestEcoGreen,
-                    fontWeight = FontWeight.Bold
-                )
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(ForestEcoGreen.copy(alpha = 0.2f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(ForestEcoGreen)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "SECURE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ForestEcoGreen,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // Global profile switcher avatar
+                GlobalProfileAvatarButton(viewModel = viewModel)
             }
         }
     }

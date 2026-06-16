@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,6 +25,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -32,6 +37,8 @@ import com.example.ui.screens.DriveScreen
 import com.example.ui.screens.MainScreen
 import com.example.ui.screens.AIChatDrawer
 import com.example.ui.screens.JunkCleanerScreen
+import com.example.ui.screens.AccountSwitcherDialog
+import com.example.ui.screens.OAuthLoginDialog
 import com.example.ui.theme.*
 import com.example.viewmodel.FileManagerViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,9 +61,58 @@ fun MainAppContainer() {
     val viewModel: FileManagerViewModel = viewModel()
     var selectedIndex by remember { mutableStateOf(0) }
     val isChatDrawerOpen by viewModel.isChatDrawerOpen.collectAsStateWithLifecycle()
+    
+    val activeAccount by viewModel.selectedCloudAccount.collectAsStateWithLifecycle()
+    val accounts by viewModel.cloudAccounts.collectAsStateWithLifecycle()
+    val showAccountDialog by viewModel.showGlobalAccountSwitcher.collectAsStateWithLifecycle()
+    val showAddAccountDialog by viewModel.showGlobalAddAccount.collectAsStateWithLifecycle()
+    val showApiKeyPromptDialogForScan by viewModel.showApiKeyPromptDialogForScan.collectAsStateWithLifecycle()
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+
+    if (showApiKeyPromptDialogForScan) {
+        ApiKeyPromptDialog(
+            onConfirm = { keyText ->
+                viewModel.geminiApiKey.value = keyText
+                viewModel.showApiKeyPromptDialogForScan.value = false
+                viewModel.startSemanticScan()
+            },
+            onDismiss = {
+                viewModel.showApiKeyPromptDialogForScan.value = false
+            }
+        )
+    }
+
+    if (showAccountDialog) {
+        AccountSwitcherDialog(
+            accounts = accounts,
+            selectedAccount = activeAccount,
+            onSelect = { email ->
+                viewModel.selectCloudAccount(email)
+                viewModel.showGlobalAccountSwitcher.value = false
+            },
+            onLogout = {
+                viewModel.logoutFromCloudAccount()
+                viewModel.showGlobalAccountSwitcher.value = false
+            },
+            onAddNewClick = {
+                viewModel.showGlobalAddAccount.value = true
+                viewModel.showGlobalAccountSwitcher.value = false
+            },
+            onDismiss = { viewModel.showGlobalAccountSwitcher.value = false }
+        )
+    }
+
+    if (showAddAccountDialog) {
+        OAuthLoginDialog(
+            onDismiss = { viewModel.showGlobalAddAccount.value = false },
+            onAddLoginSim = { email, token ->
+                viewModel.addCloudAccount(email)
+                viewModel.showGlobalAddAccount.value = false
+            }
+        )
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -136,27 +192,43 @@ fun MainAppContainer() {
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp))
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.White.copy(alpha = 0.04f))
+                                    .clickable { viewModel.showGlobalAccountSwitcher.value = true }
                                     .padding(10.dp)
+                                    .testTag("drawer_switch_account_row")
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .size(32.dp)
                                         .clip(CircleShape)
-                                        .background(CustomFlameOrange.copy(alpha = 0.15f)),
+                                        .background(
+                                            if (activeAccount != null) CustomFlameOrange.copy(alpha = 0.15f)
+                                            else Color.White.copy(alpha = 0.10f)
+                                        ),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(
-                                        Icons.Default.Person,
-                                        contentDescription = null,
-                                        tint = CustomFlameOrange,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                    if (activeAccount != null) {
+                                        val firstLetter = activeAccount?.firstOrNull()?.uppercaseChar()?.toString() ?: "U"
+                                        Text(
+                                            text = firstLetter,
+                                            color = CustomFlameOrange,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    } else {
+                                        Icon(
+                                            Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = Color.Gray,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
                                     Text(
-                                        text = "epostvvf@gmail.com",
+                                        text = activeAccount ?: "No Account / Guest",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White,
@@ -168,13 +240,13 @@ fun MainAppContainer() {
                                             modifier = Modifier
                                                 .size(6.dp)
                                                 .clip(CircleShape)
-                                                .background(ForestEcoGreen)
+                                                .background(if (activeAccount != null) ForestEcoGreen else Color.Gray)
                                         )
                                         Spacer(modifier = Modifier.width(5.dp))
                                         Text(
-                                            text = "Active Workspace",
+                                            text = if (activeAccount != null) "Active Workspace" else "Click to Switch / Login",
                                             fontSize = 9.sp,
-                                            color = ForestEcoGreen,
+                                            color = if (activeAccount != null) ForestEcoGreen else TextGray,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                     }
@@ -378,5 +450,158 @@ fun ScrollViewDrawerItemsList(
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.testTag("drawer_item_ai_assistant")
         )
+    }
+}
+
+@Composable
+fun GlobalProfileAvatarButton(viewModel: FileManagerViewModel) {
+    val activeAccount by viewModel.selectedCloudAccount.collectAsStateWithLifecycle()
+    
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(
+                if (activeAccount != null) CustomFlameOrange else Color.White.copy(alpha = 0.12f)
+            )
+            .clickable { viewModel.showGlobalAccountSwitcher.value = true }
+            .testTag("global_profile_avatar_btn"),
+        contentAlignment = Alignment.Center
+    ) {
+        if (activeAccount != null) {
+            val firstLetter = activeAccount?.firstOrNull()?.uppercaseChar()?.toString() ?: "U"
+            Text(
+                text = firstLetter,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Black
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = "Profile Switcher",
+                tint = Color.White,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun ApiKeyPromptDialog(
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var keyText by remember { mutableStateOf("") }
+    var hideKey by remember { mutableStateOf(true) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .testTag("api_key_prompt_dialog")
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Circular icon header
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(CustomFlameOrange.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Key,
+                        contentDescription = null,
+                        tint = CustomFlameOrange,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "Gemini API Key Required",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "A valid Gemini API Key is required to compute AI similarity structure scores.",
+                    fontSize = 11.sp,
+                    color = TextGray,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 15.sp
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = keyText,
+                    onValueChange = { keyText = it },
+                    label = { Text("Enter Gemini API Key") },
+                    singleLine = true,
+                    visualTransformation = if (hideKey) PasswordVisualTransformation() else VisualTransformation.None,
+                    trailingIcon = {
+                        IconButton(onClick = { hideKey = !hideKey }) {
+                            Icon(
+                                imageVector = if (hideKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = "Toggle key text hiding"
+                            )
+                        }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = CustomFlameOrange,
+                        unfocusedBorderColor = Color.Gray,
+                        focusedLabelColor = CustomFlameOrange,
+                        unfocusedLabelColor = Color.Gray
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("api_key_prompt_input_field")
+                )
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        border = BorderStroke(1.dp, Color.Gray),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Cancel", color = Color.White)
+                    }
+
+                    Button(
+                        onClick = {
+                            if (keyText.isNotBlank()) {
+                                onConfirm(keyText)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
+                        shape = RoundedCornerShape(12.dp),
+                        enabled = keyText.isNotBlank(),
+                        modifier = Modifier.weight(1f).testTag("btn_api_key_prompt_submit")
+                    ) {
+                        Text("Start Scan", color = Color.White)
+                    }
+                }
+            }
+        }
     }
 }

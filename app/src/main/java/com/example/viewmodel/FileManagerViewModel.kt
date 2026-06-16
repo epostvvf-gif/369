@@ -146,6 +146,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     val cloudScanProgress = MutableStateFlow(0f)
     val isAutoSyncEnabled = MutableStateFlow(true) // Global simulated auto sync switch
     val simulateWifiOnlySync = MutableStateFlow(true) // Wi-Fi constraint toggle
+    val showGlobalAccountSwitcher = MutableStateFlow(false)
+    val showGlobalAddAccount = MutableStateFlow(false)
+    val showApiKeyPromptDialogForScan = MutableStateFlow(false)
 
     // Simulated cloud file listing
     private val baseCloudFiles = MutableStateFlow<List<CloudFile>>(emptyList())
