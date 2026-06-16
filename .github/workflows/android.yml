@@ -38,8 +38,17 @@ jobs:
       - name: Grant Execute Permission to Gradlew
         run: chmod +x gradlew
 
+      - name: Decode Debug Keystore
+        run: |
+          if [ -f debug.keystore.base64 ]; then
+            echo "Decoding debug.keystore.base64..."
+            base64 -d debug.keystore.base64 > debug.keystore
+          else
+            echo "debug.keystore.base64 not found, falling back to default debug signing."
+          fi
+
       - name: Run Build (Compile Debug APK)
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug --no-daemon --max-workers=1
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
