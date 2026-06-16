@@ -37,7 +37,7 @@ import com.example.ui.screens.DriveScreen
 import com.example.ui.screens.MainScreen
 import com.example.ui.screens.AIChatDrawer
 import com.example.ui.screens.JunkCleanerScreen
-import com.example.ui.screens.AccountSwitcherDialog
+import com.example.ui.screens.AccountSwitcherBottomSheet
 import com.example.ui.screens.OAuthLoginDialog
 import com.example.ui.theme.*
 import com.example.viewmodel.FileManagerViewModel
@@ -85,7 +85,7 @@ fun MainAppContainer() {
     }
 
     if (showAccountDialog) {
-        AccountSwitcherDialog(
+        AccountSwitcherBottomSheet(
             accounts = accounts,
             selectedAccount = activeAccount,
             onSelect = { email ->

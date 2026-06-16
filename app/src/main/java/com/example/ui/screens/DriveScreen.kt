@@ -850,9 +850,10 @@ fun CloudFilesSection(
     }
 }
 
-// --- Account Switcher Drop-up modal Dialog ---
+// --- Account Switcher Bottom Sheet mirroring Google Drive account switching behavior ---
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AccountSwitcherDialog(
+fun AccountSwitcherBottomSheet(
     accounts: List<String>,
     selectedAccount: String?,
     onSelect: (String) -> Unit,
@@ -860,75 +861,197 @@ fun AccountSwitcherDialog(
     onAddNewClick: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = DeepSurfaceDark,
+        contentColor = Color.White,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Color.Gray.copy(alpha = 0.5f)) },
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        modifier = Modifier.testTag("account_switcher_dialog")
+    ) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
-                .testTag("account_switcher_dialog")
+                .navigationBarsPadding()
+                .padding(start = 24.dp, end = 24.dp, bottom = 24.dp, top = 8.dp)
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            // Google Account Branding Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = "Switch Simulated Account",
+                    text = "G",
+                    color = AquaticWaveBlue,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 22.sp
+                )
+                Text(
+                    text = "o",
+                    color = CustomFlameOrange,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 22.sp
+                )
+                Text(
+                    text = "o",
+                    color = Color.Yellow,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 22.sp
+                )
+                Text(
+                    text = "g",
+                    color = AquaticWaveBlue,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 22.sp
+                )
+                Text(
+                    text = "l",
+                    color = ForestEcoGreen,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 22.sp
+                )
+                Text(
+                    text = "e",
+                    color = CustomFlameOrange,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 22.sp
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Account",
+                    color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    fontSize = 18.sp
                 )
+            }
 
-                Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-                accounts.forEach { email ->
-                    val isCurrent = email == selectedAccount
-                    Row(
+            // Accounts List styled as Google Drive profile cards
+            accounts.forEach { email ->
+                val isCurrent = email == selectedAccount
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            if (isCurrent) Color.White.copy(alpha = 0.08f) else Color.Transparent
+                        )
+                        .clickable { onSelect(email) }
+                        .padding(14.dp)
+                        .testTag("profile_option_$email"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
+                            .size(38.dp)
+                            .clip(CircleShape)
                             .background(
-                                if (isCurrent) CosmicPrimary else Color.Transparent
-                            )
-                            .clickable { onSelect(email) }
-                            .padding(12.dp)
-                            .testTag("profile_option_$email"),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                                if (isCurrent) CustomFlameOrange.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.08f)
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Person, contentDescription = null, tint = CustomFlameOrange)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = email, color = Color.White, fontSize = 12.sp)
-                        }
+                        Text(
+                            text = email.firstOrNull()?.uppercaseChar()?.toString() ?: "U",
+                            color = if (isCurrent) CustomFlameOrange else Color.White,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 15.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = email,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium
+                        )
                         if (isCurrent) {
-                            Icon(Icons.Default.Check, contentDescription = "Active", tint = ForestEcoGreen)
+                            Text(
+                                text = "Currently active drive",
+                                color = ForestEcoGreen,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
+
+                    if (isCurrent) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Active Checkmark",
+                            tint = ForestEcoGreen,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            Divider(color = Color.White.copy(alpha = 0.12f), thickness = 1.dp)
+            Spacer(modifier = Modifier.height(12.dp))
 
-                Divider(color = Color.Gray.copy(alpha = 0.3f))
+            // Actions list mirroring Google Drive options
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onAddNewClick() }
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                    .testTag("add_account_btn"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    tint = CustomFlameOrange,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(14.dp))
+                Text(
+                    text = "Add another account",
+                    color = CustomFlameOrange,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Actions Button List
-                TextButton(onClick = onAddNewClick, modifier = Modifier.fillMaxWidth().testTag("add_account_btn")) {
-                    Icon(Icons.Default.Add, "add account", tint = CustomFlameOrange)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Add simulated profile using email/token", color = CustomFlameOrange, fontSize = 12.sp)
-                }
-
-                TextButton(onClick = onLogout, modifier = Modifier.fillMaxWidth().testTag("logout_sim_btn")) {
-                    Icon(Icons.Default.Logout, "logout", tint = MaterialTheme.colorScheme.error)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Log out simulated cloud Profile", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                    Text("Dismiss", color = Color.White)
-                }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onLogout() }
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                    .testTag("logout_sim_btn"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Logout,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(14.dp))
+                Text(
+                    text = "Logout of all accounts",
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }

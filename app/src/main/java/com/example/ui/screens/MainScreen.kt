@@ -50,6 +50,10 @@ fun MainScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val searchResults by viewModel.calculateSearchMatchesFlow().collectAsStateWithLifecycle(initialValue = emptyList())
     
+    val isAiSearchMode by viewModel.isAiSearchMode.collectAsStateWithLifecycle()
+    val isAiSearching by viewModel.isAiSearching.collectAsStateWithLifecycle()
+    val aiSearchError by viewModel.aiSearchError.collectAsStateWithLifecycle()
+    
     val selectedLocalFileIds by viewModel.selectedLocalFileIds.collectAsStateWithLifecycle()
     val isMultiSelect by viewModel.isMultiSelect.collectAsStateWithLifecycle()
 
@@ -116,6 +120,11 @@ fun MainScreen(
                 SearchAndAddBar(
                     query = searchQuery,
                     onQueryChange = { viewModel.searchQuery.value = it },
+                    isAiSearchMode = isAiSearchMode,
+                    isAiSearching = isAiSearching,
+                    aiSearchError = aiSearchError,
+                    onAiSearchClick = { viewModel.performGeminiNaturalLanguageSearch(searchQuery) },
+                    onClearAiSearch = { viewModel.clearAiSearch() },
                     onAddClick = { showAddFileDialog = true }
                 )
 
@@ -616,36 +625,201 @@ fun UtilityButton(
 fun SearchAndAddBar(
     query: String,
     onQueryChange: (String) -> Unit,
+    isAiSearchMode: Boolean,
+    isAiSearching: Boolean,
+    aiSearchError: String?,
+    onAiSearchClick: () -> Unit,
+    onClearAiSearch: () -> Unit,
     onAddClick: () -> Unit
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            placeholder = { Text("Search files with custom fuzzy percentages...") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = AquaticWaveBlue) },
-            trailingIcon = if (query.isNotEmpty()) {
-                {
-                    IconButton(onClick = { onQueryChange("") }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear")
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = {
+                    onQueryChange(it)
+                    if (isAiSearchMode && it.isBlank()) {
+                        onClearAiSearch()
                     }
+                },
+                placeholder = { 
+                    Text(
+                        if (isAiSearchMode) "Describe file to Gemini..." 
+                        else "Search files (name, custom fuzzy matching)..."
+                    ) 
+                },
+                leadingIcon = { 
+                    Icon(
+                        imageVector = if (isAiSearchMode) Icons.Default.AutoAwesome else Icons.Default.Search, 
+                        contentDescription = "Search Icon", 
+                        tint = if (isAiSearchMode) CustomFlameOrange else AquaticWaveBlue
+                    ) 
+                },
+                trailingIcon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { 
+                                onQueryChange("") 
+                                if (isAiSearchMode) {
+                                    onClearAiSearch()
+                                }
+                            }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear Input", tint = Color.Gray)
+                            }
+                        }
+                        
+                        // Small Action Sparkle Button for triggering Gemini AI search directly from text field
+                        IconButton(
+                            onClick = {
+                                if (isAiSearchMode) {
+                                    onClearAiSearch()
+                                } else {
+                                    onAiSearchClick()
+                                }
+                            },
+                            modifier = Modifier.testTag("ai_search_toggle_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "AI Search Trigger",
+                                tint = if (isAiSearchMode) CustomFlameOrange else Color.Gray
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("search_field_input"),
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = if (isAiSearchMode) CustomFlameOrange else AquaticWaveBlue,
+                    unfocusedBorderColor = if (isAiSearchMode) CustomFlameOrange.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant,
+                    focusedContainerColor = DeepSurfaceDark,
+                    unfocusedContainerColor = DeepSurfaceDark
+                ),
+                singleLine = true
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // AI search details/actions row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (isAiSearching) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = CustomFlameOrange
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Gemini processing natural language context...",
+                        fontSize = 12.sp,
+                        color = CustomFlameOrange,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
-            } else null,
-            modifier = Modifier
-                .weight(1f)
-                .testTag("search_field_input"),
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = CustomFlameOrange,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-            ),
-            singleLine = true
-        )
+            } else if (isAiSearchMode) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(CustomFlameOrange.copy(alpha = 0.15f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = CustomFlameOrange,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "AI Matches Filtered",
+                        color = CustomFlameOrange,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Clear AI filter",
+                        tint = CustomFlameOrange,
+                        modifier = Modifier
+                            .size(14.dp)
+                            .clickable { onClearAiSearch() }
+                    )
+                }
+            } else {
+                // Inline Tip Box or Trigger Button
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onAiSearchClick() }
+                        .padding(vertical = 4.dp, horizontal = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = CustomFlameOrange,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Try AI Search (e.g., 'find bill from last week')",
+                        color = Color.LightGray.copy(alpha = 0.8f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            if (isAiSearchMode) {
+                Text(
+                    text = "Clear AI Filter",
+                    color = Color.Gray,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clickable { onClearAiSearch() }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            } else if (query.trim().isNotEmpty()) {
+                Text(
+                    text = "Submit AI Query",
+                    color = CustomFlameOrange,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clickable { onAiSearchClick() }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                        .testTag("submit_ai_search_btn")
+                )
+            }
+        }
+
+        if (aiSearchError != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Error: $aiSearchError",
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
 

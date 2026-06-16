@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -217,34 +218,76 @@ fun JunkCleanerScreen(
                         }
                     }
 
-                    // Primary Clean Trigger Sticky Button
+                    // Primary Clean Trigger Sticky Button Row
                     if (scannedJunkItems.isNotEmpty()) {
-                        Button(
-                            onClick = { viewModel.cleanSelectedJunk() },
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(52.dp)
-                                .padding(top = 8.dp)
-                                .testTag("btn_clean_selected_junk"),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = CustomFlameOrange,
-                                disabledContainerColor = Color.Gray.copy(alpha = 0.5f)
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            enabled = checkedItems.isNotEmpty()
+                                .padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
+                            // "Clean Selected" Outlined Button
+                            OutlinedButton(
+                                onClick = { viewModel.cleanSelectedJunk() },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .testTag("btn_clean_selected_junk"),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = CustomFlameOrange
+                                ),
+                                border = BorderStroke(1.5.dp, CustomFlameOrange.copy(alpha = 0.8f)),
+                                shape = RoundedCornerShape(12.dp),
+                                enabled = checkedItems.isNotEmpty()
                             ) {
-                                Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = Color.White)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Clean Selected Junk (${viewModel.formatFileSize(totalReclaimableSize)})",
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 14.sp,
-                                    color = Color.White
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Selected",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+
+                            // "Clear All" Primary Action Button
+                            Button(
+                                onClick = { viewModel.cleanAllJunk() },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .testTag("btn_clean_all_junk"),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = CustomFlameOrange
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteSweep,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Clear All",
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 12.sp,
+                                        color = Color.White
+                                    )
+                                }
                             }
                         }
                     }

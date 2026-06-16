@@ -97,6 +97,10 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val searchQuery = MutableStateFlow("")
+    val isAiSearchMode = MutableStateFlow(false)
+    val isAiSearching = MutableStateFlow(false)
+    val aiSearchResults = MutableStateFlow<List<FileEntity>?>(null)
+    val aiSearchError = MutableStateFlow<String?>(null)
     val selectedLocalFileIds = MutableStateFlow<Set<Int>>(emptySet())
     val isMultiSelect = MutableStateFlow(false)
     
@@ -274,27 +278,33 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     // Returns a dynamic matched score list of Pairs
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun calculateSearchMatchesFlow(): Flow<List<Pair<FileEntity, Double>>> {
-        return searchQuery.flatMapLatest { query ->
-            val dbSourceFlow = if (query.isBlank()) {
-                normalFiles
+        return combine(searchQuery, isAiSearchMode, aiSearchResults) { query, isAi, aiResults ->
+            Triple(query, isAi, aiResults)
+        }.flatMapLatest { (query, isAi, aiResults) ->
+            if (isAi && aiResults != null) {
+                flowOf(aiResults.map { it to 100.0 })
             } else {
-                repository.getNormalFilesByNameLike("%$query%")
-            }
-            combine(dbSourceFlow, fileExplorerMode, explorerSelectedFolder) { files, mode, folder ->
-                val scopedFiles = if (mode == "Folders" && folder != null) {
-                    files.filter { it.category == folder }
+                val dbSourceFlow = if (query.isBlank()) {
+                    normalFiles
                 } else {
-                    files
+                    repository.getNormalFilesByNameLike("%$query%")
                 }
-                if (query.isBlank()) {
-                    scopedFiles.map { it to 100.0 }
-                } else {
-                    scopedFiles.map { file ->
-                        val percentage = getCustomSearchMatchRatio(file.name, query)
-                        file to percentage
+                combine(dbSourceFlow, fileExplorerMode, explorerSelectedFolder) { files, mode, folder ->
+                    val scopedFiles = if (mode == "Folders" && folder != null) {
+                        files.filter { it.category == folder }
+                    } else {
+                        files
                     }
-                    .filter { it.second > 0.0 }
-                    .sortedByDescending { it.second } // Best match calculation first!
+                    if (query.isBlank()) {
+                        scopedFiles.map { it to 100.0 }
+                    } else {
+                        scopedFiles.map { file ->
+                            val percentage = getCustomSearchMatchRatio(file.name, query)
+                            file to percentage
+                        }
+                        .filter { it.second > 0.0 }
+                        .sortedByDescending { it.second } // Best match calculation first!
+                    }
                 }
             }
         }
@@ -332,6 +342,82 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     // --- Local Manager Multi-select Actions ---
+    fun clearAiSearch() {
+        isAiSearchMode.value = false
+        aiSearchResults.value = null
+        aiSearchError.value = null
+    }
+
+    fun performGeminiNaturalLanguageSearch(descQuery: String) {
+        val queryText = descQuery.trim()
+        if (queryText.isBlank()) return
+
+        if (geminiApiKey.value.isBlank()) {
+            showApiKeyPromptDialogForScan.value = true
+            return
+        }
+
+        viewModelScope.launch {
+            isAiSearching.value = true
+            aiSearchError.value = null
+            
+            try {
+                val filesList = normalFiles.value
+                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                val filesContext = filesList.joinToString("\n") { file ->
+                    "{\"id\": ${file.id}, \"name\": \"${file.name}\", \"category\": \"${file.category}\", \"date\": \"${sdf.format(java.util.Date(file.timestamp))}\"}"
+                }
+                
+                val currentLocalDate = "2026-06-16"
+                val prompt = """
+                    Current local date: $currentLocalDate.
+                    
+                    You are a precise file matching utility. Analyze the following list of local files in JSON lines format:
+                    [
+                    $filesContext
+                    ]
+                    
+                    User natural language search description: "$queryText"
+                    
+                    Task: Select only the file integer IDs that match the semantic description.
+                    Find files corresponding to keywords, description, categories, date or relative description (e.g., if describes 'bill from last week', search for file names with 'bill', 'receipt', 'invoice' dated roughly 7 days before $currentLocalDate, i.e., around 2026-06-09).
+                    
+                    Return ONLY a JSON array containing the matching file integer IDs, for example: [1, 3] or [].
+                    Do NOT include markdown block markers (like ```json), labels, explanation notes or text formatting. Output strictly valid raw JSON code array.
+                """.trimIndent()
+
+                val aiResponseText = repository.askGemini(
+                    prompt = prompt,
+                    customKey = geminiApiKey.value,
+                    useHighThinking = false,
+                    history = emptyList()
+                )
+
+                val cleaned = aiResponseText.trim()
+                    .replace("`", "")
+                    .replace("json", "")
+                    .replace("[", "")
+                    .replace("]", "")
+                    .trim()
+
+                val matchedIds = if (cleaned.isNotEmpty()) {
+                    cleaned.split(",")
+                        .mapNotNull { it.trim().toIntOrNull() }
+                } else {
+                    emptyList()
+                }
+
+                val resultsList = filesList.filter { it.id in matchedIds }
+                aiSearchResults.value = resultsList
+                isAiSearchMode.value = true
+            } catch (e: Exception) {
+                aiSearchError.value = e.message ?: "Failed to perform AI search"
+            } finally {
+                isAiSearching.value = false
+            }
+        }
+    }
+
     fun toggleLocalFileSelection(id: Int) {
         val currentSet = selectedLocalFileIds.value
         if (currentSet.contains(id)) {
@@ -450,6 +536,26 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             
             // Keep unchecked items, remove checked ones
             scannedJunkItems.value = scannedJunkItems.value.filter { !it.isChecked }
+            
+            isJunkCleaning.value = false
+            showJunkCleaner.value = false
+            showCelebrationDialog.value = true
+        }
+    }
+
+    fun cleanAllJunk() {
+        viewModelScope.launch {
+            isJunkCleaning.value = true
+            val sizeToClean = scannedJunkItems.value.sumOf { it.size }
+            junkBytesCleaned.value = sizeToClean
+            
+            delay(2000) // Simulated physical removal delay
+            
+            // Reclaim by clearing Room DB junk files
+            repository.clearAllJunk()
+            
+            // Clear all scanned junk items completely
+            scannedJunkItems.value = emptyList()
             
             isJunkCleaning.value = false
             showJunkCleaner.value = false
@@ -577,7 +683,11 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun selectCloudAccount(email: String) {
-        selectedCloudAccount.value = email
+        if (selectedCloudAccount.value != email) {
+            selectedCloudAccount.value = email
+            // Clear API key so that user has to reconfigure or prompt for re-authentication on selecting a different drive
+            geminiApiKey.value = ""
+        }
     }
 
     // --- Cloud Multi-selection, search, deletion actions ---
