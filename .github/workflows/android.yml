@@ -24,6 +24,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Restore Gradle Wrapper Jar
+        run: |
+          mkdir -p gradle/wrapper
+          curl -Lo gradle/wrapper/gradle-wrapper.jar https://github.com/gradle/gradle/raw/v8.12.0/gradle/wrapper/gradle-wrapper.jar
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
