@@ -30,6 +30,8 @@ import com.example.ui.theme.*
 import com.example.viewmodel.CloudFile
 import com.example.viewmodel.FileManagerViewModel
 import com.example.GlobalProfileAvatarButton
+import com.example.data.FileEntity
+import androidx.compose.ui.text.font.FontFamily
 
 @Composable
 fun DriveScreen(
@@ -45,8 +47,23 @@ fun DriveScreen(
     val scanProgress by viewModel.cloudScanProgress.collectAsStateWithLifecycle()
 
     var showUploadCloudDialog by remember { mutableStateOf(false) }
+    var navSelection by remember { mutableStateOf(0) } // 0 = Files, 1 = Folders, 2 = Transfers & Sync
+    
+    val isAiSearchMode by viewModel.isAiSearchMode.collectAsStateWithLifecycle()
+    val isAiSearching by viewModel.isAiSearching.collectAsStateWithLifecycle()
+    val aiSearchError by viewModel.aiSearchError.collectAsStateWithLifecycle()
+    val safeFiles by viewModel.safeFiles.collectAsStateWithLifecycle(initialValue = emptyList())
+    val filePreview by viewModel.filePreview.collectAsStateWithLifecycle()
 
     Box(modifier = Modifier.fillMaxSize()) {
+        filePreview?.let { previewFile ->
+            com.example.ui.components.FilePreviewDialog(
+                previewFile = previewFile,
+                viewModel = viewModel,
+                onDismiss = { viewModel.closeFilePreview() }
+            )
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -69,58 +86,201 @@ fun DriveScreen(
                     }
                 )
             } else {
-                // Display Active account switcher info card
-                ActiveAccountProfileCard(
-                    account = accountVal,
-                    onSwitchClick = { viewModel.showGlobalAccountSwitcher.value = true }
-                )
+                Row(modifier = Modifier.fillMaxSize()) {
+                    // Left Side: Material 3 Navigation Rail
+                    NavigationRail(
+                        containerColor = DeepSurfaceDark,
+                        contentColor = Color.White,
+                        modifier = Modifier.fillMaxHeight().width(76.dp)
+                    ) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        NavigationRailItem(
+                            selected = navSelection == 0,
+                            onClick = { navSelection = 0 },
+                            icon = { Icon(Icons.Default.CloudQueue, contentDescription = "Files") },
+                            label = { Text("Files", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = AquaticWaveBlue,
+                                unselectedIconColor = Color.Gray,
+                                selectedTextColor = AquaticWaveBlue,
+                                unselectedTextColor = Color.Gray,
+                                indicatorColor = Color.White.copy(alpha = 0.08f)
+                            ),
+                            modifier = Modifier.testTag("rail_item_files")
+                        )
+                        
+                        Spacer(modifier = Modifier.height(18.dp))
+                        
+                        NavigationRailItem(
+                            selected = navSelection == 1,
+                            onClick = { navSelection = 1 },
+                            icon = { Icon(Icons.Default.FolderOpen, contentDescription = "Folders") },
+                            label = { Text("Folders", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = AquaticWaveBlue,
+                                unselectedIconColor = Color.Gray,
+                                selectedTextColor = AquaticWaveBlue,
+                                unselectedTextColor = Color.Gray,
+                                indicatorColor = Color.White.copy(alpha = 0.08f)
+                            ),
+                            modifier = Modifier.testTag("rail_item_folders")
+                        )
+                        
+                        Spacer(modifier = Modifier.height(18.dp))
+                        
+                        NavigationRailItem(
+                            selected = navSelection == 2,
+                            onClick = { navSelection = 2 },
+                            icon = { Icon(Icons.Default.Sync, contentDescription = "Transfers") },
+                            label = { Text("Transfers", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = AquaticWaveBlue,
+                                unselectedIconColor = Color.Gray,
+                                selectedTextColor = AquaticWaveBlue,
+                                unselectedTextColor = Color.Gray,
+                                indicatorColor = Color.White.copy(alpha = 0.08f)
+                            ),
+                            modifier = Modifier.testTag("rail_item_transfers")
+                        )
+                    }
 
-                // Live Google Drive REST Client connection card
-                LiveGoogleDriveConnectionCard(viewModel = viewModel)
+                    // Right Side Content Area
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    ) {
+                        when (navSelection) {
+                            0 -> {
+                                // Tab 0: Files View
+                                ActiveAccountProfileCard(
+                                    account = accountVal,
+                                    onSwitchClick = { viewModel.showGlobalAccountSwitcher.value = true }
+                                )
 
-                // Cloud Storage & Sync Dashboard Status simulation
-                CloudStorageDashboardCard(
-                    cloudFiles = cloudFiles,
-                    viewModel = viewModel
-                )
+                                CloudSearchBar(
+                                    query = searchCloudQuery,
+                                    onQueryChange = { viewModel.searchCloudQuery.value = it },
+                                    isAiSearchMode = isAiSearchMode,
+                                    isAiSearching = isAiSearching,
+                                    aiSearchError = aiSearchError,
+                                    onAiSearchClick = { viewModel.performGeminiNaturalLanguageSearch(searchCloudQuery) },
+                                    onClearAiSearch = { viewModel.clearAiSearch() },
+                                    onUploadClick = { showUploadCloudDialog = true }
+                                )
 
-                // High-Thinking Semantic AI Scan dashboard card
-                SemanticScanDashboardCard(
-                    isScanning = isScanning,
-                    progress = scanProgress,
-                    onStartScan = {
-                        if (viewModel.geminiApiKey.value.isBlank()) {
-                            viewModel.showApiKeyPromptDialogForScan.value = true
-                        } else {
-                            viewModel.startSemanticScan()
+                                if (isAiSearchMode) {
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                                        colors = CardDefaults.cardColors(containerColor = CustomFlameOrange.copy(alpha = 0.12f)),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, CustomFlameOrange.copy(alpha = 0.4f)),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.AutoAwesome, "AI Active", tint = CustomFlameOrange, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("AI matching cloud filter active.", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            Text(
+                                                "Clear Results",
+                                                color = CustomFlameOrange,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier
+                                                    .clickable { viewModel.clearAiSearch() }
+                                                    .testTag("clear_cloud_ai_results_btn")
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (selectedCloudFileIds.isNotEmpty()) {
+                                    CloudBatchActionsBar(
+                                        selectedCount = selectedCloudFileIds.size,
+                                        onClearSelection = { viewModel.selectedCloudFileIds.value = emptySet() },
+                                        onDeleteSelected = { viewModel.deleteSelectedCloudFiles() }
+                                    )
+                                }
+
+                                CloudFilesSection(
+                                    cloudFiles = cloudFiles,
+                                    selectedIds = selectedCloudFileIds,
+                                    onToggleFile = { viewModel.toggleCloudFileSelection(it.id) },
+                                    viewModel = viewModel,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            1 -> {
+                                // Tab 1: Folders Dashboard
+                                CloudFoldersDashboardSection(
+                                    cloudFiles = cloudFiles,
+                                    safeFiles = safeFiles,
+                                    viewModel = viewModel,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            2 -> {
+                                // Tab 2: Transfers & Overall Status
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    item {
+                                        ActiveAccountProfileCard(
+                                            account = accountVal,
+                                            onSwitchClick = { viewModel.showGlobalAccountSwitcher.value = true }
+                                        )
+                                    }
+
+                                    item {
+                                        LiveGoogleDriveConnectionCard(viewModel = viewModel)
+                                    }
+
+                                    item {
+                                        CloudStorageDashboardCard(
+                                            cloudFiles = cloudFiles,
+                                            viewModel = viewModel
+                                        )
+                                    }
+
+                                    item {
+                                        SemanticScanDashboardCard(
+                                            isScanning = isScanning,
+                                            progress = scanProgress,
+                                            onStartScan = {
+                                                if (viewModel.geminiApiKey.value.isBlank()) {
+                                                    viewModel.showApiKeyPromptDialogForScan.value = true
+                                                } else {
+                                                    viewModel.startSemanticScan()
+                                                }
+                                            }
+                                        )
+                                    }
+
+                                    item {
+                                        SimulatedTransfersQueueCard(
+                                            isScanning = isScanning,
+                                            safeFiles = safeFiles,
+                                            viewModel = viewModel
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
-                )
-
-                // Search Cloud files Bar
-                CloudSearchBar(
-                    query = searchCloudQuery,
-                    onQueryChange = { viewModel.searchCloudQuery.value = it },
-                    onUploadClick = { showUploadCloudDialog = true }
-                )
-
-                // Cloud batch action card
-                if (selectedCloudFileIds.isNotEmpty()) {
-                    CloudBatchActionsBar(
-                        selectedCount = selectedCloudFileIds.size,
-                        onClearSelection = { viewModel.selectedCloudFileIds.value = emptySet() },
-                        onDeleteSelected = { viewModel.deleteSelectedCloudFiles() }
-                    )
                 }
-
-                // Cloud list
-                CloudFilesSection(
-                    cloudFiles = cloudFiles,
-                    selectedIds = selectedCloudFileIds,
-                    onToggleFile = { viewModel.toggleCloudFileSelection(it.id) },
-                    viewModel = viewModel,
-                    modifier = Modifier.weight(1f)
-                )
             }
         }
 
@@ -846,34 +1006,115 @@ fun SemanticScanDashboardCard(
 fun CloudSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
+    isAiSearchMode: Boolean,
+    isAiSearching: Boolean,
+    aiSearchError: String?,
+    onAiSearchClick: () -> Unit,
+    onClearAiSearch: () -> Unit,
     onUploadClick: () -> Unit
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            placeholder = { Text("Search cloud files...") },
-            leadingIcon = { Icon(Icons.Default.Search, "Cloud Search", tint = AquaticWaveBlue) },
-            singleLine = true,
-            modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(12.dp)
-        )
-
-        IconButton(
-            onClick = onUploadClick,
+    Column(modifier = Modifier.padding(bottom = 8.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(CosmicPrimary)
-                .size(48.dp)
-                .testTag("upload_cloud_file")
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(Icons.Default.CloudUpload, contentDescription = "Upload Cloud File", tint = Color.White)
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                placeholder = { Text("Search cloud files...") },
+                leadingIcon = { Icon(Icons.Default.Search, "Cloud Search", tint = AquaticWaveBlue) },
+                trailingIcon = {
+                    if (query.isNotEmpty() || isAiSearchMode) {
+                        IconButton(onClick = {
+                            if (isAiSearchMode) {
+                                onClearAiSearch()
+                            } else {
+                                onQueryChange("")
+                            }
+                        }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear search", tint = Color.Gray)
+                        }
+                    }
+                },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            IconButton(
+                onClick = onUploadClick,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(CosmicPrimary)
+                    .size(48.dp)
+                    .testTag("upload_cloud_file")
+            ) {
+                Icon(Icons.Default.CloudUpload, contentDescription = "Upload Cloud File", tint = Color.White)
+            }
+        }
+
+        // Gemini AI Natural Language Sparkle option block
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (isAiSearching) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = CustomFlameOrange)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Gemini is searching content...", fontSize = 11.sp, color = CustomFlameOrange, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onAiSearchClick() }
+                        .padding(vertical = 4.dp, horizontal = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "Gemini Sparkle Search",
+                        tint = CustomFlameOrange,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Query Cloud via Content & Description (AI)",
+                        color = CustomFlameOrange,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            if (query.isNotBlank() && !isAiSearching) {
+                Text(
+                    text = "Submit AI Query",
+                    color = CustomFlameOrange,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clickable { onAiSearchClick() }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                        .testTag("submit_cloud_ai_search_btn")
+                )
+            }
+        }
+
+        if (aiSearchError != null) {
+            Text(
+                text = aiSearchError,
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
         }
     }
 }
@@ -956,7 +1197,7 @@ fun CloudFilesSection(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onToggleFile(file) }
+                    .clickable { viewModel.showCloudFilePreview(file) }
                     .testTag("cloud_file_card_${file.id}"),
                 colors = CardDefaults.cardColors(
                     containerColor = if (isSelected) {
@@ -1047,6 +1288,404 @@ fun CloudFilesSection(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+// ====================== DYNAMIC SIMULATED FOLDERS & TRANSFERS QUEUES ======================
+
+@Composable
+fun CloudFoldersDashboardSection(
+    cloudFiles: List<CloudFile>,
+    safeFiles: List<com.example.data.FileEntity>?,
+    viewModel: FileManagerViewModel,
+    modifier: Modifier = Modifier
+) {
+    val docFiles = cloudFiles.filter { file ->
+        val lower = file.name.lowercase()
+        lower.endsWith(".pdf") || lower.endsWith(".xlsx") || lower.endsWith(".xls") || lower.endsWith(".doc") || lower.endsWith(".docx") || lower.endsWith(".txt")
+    }
+    val mediaFiles = cloudFiles.filter { file ->
+        val lower = file.name.lowercase()
+        lower.endsWith(".wav") || lower.endsWith(".mp3") || lower.endsWith(".mp4") || lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+    }
+    val safeSyncCount = safeFiles?.size ?: 0
+    val safeSyncSize = safeFiles?.sumOf { it.size } ?: 0L
+
+    var expandedFolder by remember { mutableStateOf<String?>(null) }
+
+    LazyColumn(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FolderOpen,
+                    contentDescription = null,
+                    tint = AquaticWaveBlue,
+                    modifier = Modifier.size(24.dp)
+                )
+                Column {
+                    Text(
+                        text = "Directory Explorer",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Encrypted partitions on Google Drive sandbox",
+                        fontSize = 11.sp,
+                        color = TextGray
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
+        // Folder 1: Personal Documents
+        item {
+            FolderCard(
+                name = "Personal Documents",
+                itemCount = docFiles.size,
+                totalSize = docFiles.sumOf { it.size },
+                description = "Seeded pdfs, ledger excels, and trustee resolutions.",
+                icon = Icons.Default.Description,
+                iconColor = CustomFlameOrange,
+                syncStatus = "Fully Synced & Verified",
+                syncColor = ForestEcoGreen,
+                isExpanded = expandedFolder == "docs",
+                onToggleExpand = { expandedFolder = if (expandedFolder == "docs") null else "docs" },
+                files = docFiles,
+                viewModel = viewModel
+            )
+        }
+
+        // Folder 2: Multimedia & Audio Assets
+        item {
+            FolderCard(
+                name = "Multimedia & Audio Assets",
+                itemCount = mediaFiles.size,
+                totalSize = mediaFiles.sumOf { it.size },
+                description = "Theme chants WAV sound files, branding snapshots.",
+                icon = Icons.Default.PlayCircle,
+                iconColor = AquaticWaveBlue,
+                syncStatus = "Sync Enabled (Wi-Fi Only)",
+                syncColor = AquaticWaveBlue,
+                isExpanded = expandedFolder == "media",
+                onToggleExpand = { expandedFolder = if (expandedFolder == "media") null else "media" },
+                files = mediaFiles,
+                viewModel = viewModel
+            )
+        }
+
+        // Folder 3: Secure Vault Sync Mirrors
+        item {
+            FolderCard(
+                name = "Secure Vault Mirrors",
+                itemCount = safeSyncCount,
+                totalSize = safeSyncSize,
+                description = "Decryption protection offline exports stored in private cloud.",
+                icon = Icons.Default.Lock,
+                iconColor = ForestEcoGreen,
+                syncStatus = if (safeSyncCount > 0) "Auto-Cloud Sync Active" else "No safe files in cloud yet",
+                syncColor = if (safeSyncCount > 0) ForestEcoGreen else Color.Gray,
+                isExpanded = expandedFolder == "vault",
+                onToggleExpand = { expandedFolder = if (expandedFolder == "vault") null else "vault" },
+                files = emptyList(),
+                viewModel = viewModel,
+                customSafeMessage = "Encrypted binary safe files. Decrypt locally with Vault PIN."
+            )
+        }
+
+        // Folder 4: Other Root Items
+        val otherFiles = cloudFiles.filter { it !in docFiles && it !in mediaFiles }
+        if (otherFiles.isNotEmpty()) {
+            item {
+                FolderCard(
+                    name = "Other Sandbox Objects",
+                    itemCount = otherFiles.size,
+                    totalSize = otherFiles.sumOf { it.size },
+                    description = "Miscellaneous unclassified developer test objects.",
+                    icon = Icons.Default.Extension,
+                    iconColor = Color.Magenta,
+                    syncStatus = "Standalone Sandbox Status",
+                    syncColor = Color.Gray,
+                    isExpanded = expandedFolder == "other",
+                    onToggleExpand = { expandedFolder = if (expandedFolder == "other") null else "other" },
+                    files = otherFiles,
+                    viewModel = viewModel
+                )
+            }
+        }
+        
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+fun FolderCard(
+    name: String,
+    itemCount: Int,
+    totalSize: Long,
+    description: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconColor: Color,
+    syncStatus: String,
+    syncColor: Color,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    files: List<CloudFile>,
+    viewModel: FileManagerViewModel,
+    customSafeMessage: String? = null
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggleExpand() }
+            .testTag("folder_card_${name.lowercase().replace(" ", "_").replace("&", "and")}"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(iconColor.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("$itemCount items • ${viewModel.formatFileSize(totalSize)}", fontSize = 10.sp, color = TextGray)
+                    }
+                }
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = "Expand folder",
+                    tint = TextGray,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(description, fontSize = 11.sp, color = TextGray)
+
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(syncColor)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(syncStatus, fontSize = 10.sp, color = syncColor, fontWeight = FontWeight.Bold)
+            }
+
+            // Expanding child contents
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp)
+                        .background(DeepSurfaceDark, shape = RoundedCornerShape(10.dp))
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("FOLDER DIRECTORY CONTENTS:", fontSize = 9.sp, color = iconColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.10f), modifier = Modifier.padding(vertical = 4.dp))
+
+                    if (customSafeMessage != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Lock, contentDescription = null, tint = ForestEcoGreen, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(customSafeMessage, fontSize = 11.sp, color = TextGray)
+                        }
+                    } else if (files.isEmpty()) {
+                        Text("No matching items in this directory folder.", fontSize = 11.sp, color = Color.Gray)
+                    } else {
+                        files.forEach { file ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.showCloudFilePreview(file) }
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(
+                                        imageVector = if (file.name.endsWith(".pdf")) Icons.Default.PictureAsPdf else Icons.Default.InsertDriveFile,
+                                        contentDescription = null,
+                                        tint = iconColor,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = file.name,
+                                        fontSize = 11.sp,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Text(viewModel.formatFileSize(file.size), fontSize = 10.sp, color = TextGray)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SimulatedTransfersQueueCard(
+    isScanning: Boolean,
+    safeFiles: List<com.example.data.FileEntity>?,
+    viewModel: FileManagerViewModel
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(ForestEcoGreen.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.CloudSync, contentDescription = null, tint = ForestEcoGreen, modifier = Modifier.size(20.dp))
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "Transfer Queues & Core Log",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        text = "Active secure synchronized tunnels",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Active Scan / Backup
+            if (isScanning) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = CustomFlameOrange, strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Recursive Directory Evaluation...", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Recalculating hash keys and semantic score grids...", fontSize = 10.sp, color = TextGray)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // Simulated Sync Transfers
+            Text("Simulated Sync Active Queues (Tunnels):", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = ForestEcoGreen, letterSpacing = 0.5.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Task 1: Safe Backup
+                val hasSafes = (safeFiles?.size ?: 0) > 0
+                val safeText = if (hasSafes) "Backup: Secure_Vault_Backup_${safeFiles?.size ?: 1}.enc" else "Idle (Secure Sync Connection)"
+                val safeSub = if (hasSafes) "Enforced PIN Decryption Protection • Ready" else "Waiting for new local files to sync"
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(DeepSurfaceDark, shape = RoundedCornerShape(10.dp))
+                        .padding(10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (hasSafes) Icons.Default.Lock else Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = if (hasSafes) ForestEcoGreen else Color.Gray,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(safeText, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text(safeSub, fontSize = 9.sp, color = TextGray)
+                        }
+                    }
+                    if (hasSafes) {
+                        Text("100%", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ForestEcoGreen)
+                    }
+                }
+
+                // Task 2: Live Download simulation
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(DeepSurfaceDark, shape = RoundedCornerShape(10.dp))
+                        .padding(10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CloudSync,
+                            contentDescription = null,
+                            tint = AquaticWaveBlue,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text("Automatic Restores Simulator", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text("Mirroring downloads rate: 4.8 MB/s", fontSize = 9.sp, color = TextGray)
+                        }
+                    }
+                    Icon(Icons.Default.CloudDone, contentDescription = "Active", tint = AquaticWaveBlue, modifier = Modifier.size(14.dp))
                 }
             }
         }

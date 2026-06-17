@@ -36,6 +36,10 @@ import com.example.viewmodel.FileManagerViewModel
 import com.example.GlobalProfileAvatarButton
 import com.example.viewmodel.PinMode
 import com.example.viewmodel.JunkItem
+import androidx.compose.ui.text.TextStyle
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.Date
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -56,6 +60,7 @@ fun MainScreen(
     
     val selectedLocalFileIds by viewModel.selectedLocalFileIds.collectAsStateWithLifecycle()
     val isMultiSelect by viewModel.isMultiSelect.collectAsStateWithLifecycle()
+    val filePreview by viewModel.filePreview.collectAsStateWithLifecycle()
 
     // Animation states
     val isJunkCleaning by viewModel.isJunkCleaning.collectAsStateWithLifecycle()
@@ -74,11 +79,15 @@ fun MainScreen(
     var showAddFileDialog by remember { mutableStateOf(false) }
     var inSafeViewMode by remember { mutableStateOf(false) }
 
-    var tagManagerFileId by remember { mutableStateOf<String?>(null) }
-    var tagManagerFileName by remember { mutableStateOf<String?>(null) }
-    var tagManagerIsLocal by remember { mutableStateOf(true) }
-
     Box(modifier = Modifier.fillMaxSize()) {
+        filePreview?.let { previewFile ->
+            com.example.ui.components.FilePreviewDialog(
+                previewFile = previewFile,
+                viewModel = viewModel,
+                onDismiss = { viewModel.closeFilePreview() }
+            )
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -132,9 +141,6 @@ fun MainScreen(
                     onAddClick = { showAddFileDialog = true }
                 )
 
-                // Horizontal Tag Filter Chips Row
-                TagFilterRow(viewModel = viewModel)
-
                 // Multiple choice toggle notification
                 if (isMultiSelect) {
                     MultiSelectActionBar(
@@ -154,11 +160,6 @@ fun MainScreen(
                     onToggleSelectMode = { viewModel.isMultiSelect.value = true },
                     onToggleFile = { viewModel.toggleLocalFileSelection(it.id) },
                     viewModel = viewModel,
-                    onManageTags = { id, name, isLocal ->
-                        tagManagerFileId = id
-                        tagManagerFileName = name
-                        tagManagerIsLocal = isLocal
-                    },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -220,19 +221,6 @@ fun MainScreen(
             )
         }
 
-        // Active Tag Manager Dialog Overlay
-        tagManagerFileId?.let { fileId ->
-            TagManagerDialog(
-                fileId = fileId,
-                fileName = tagManagerFileName ?: "Unknown",
-                isLocal = tagManagerIsLocal,
-                viewModel = viewModel,
-                onDismiss = {
-                    tagManagerFileId = null
-                    tagManagerFileName = null
-                }
-            )
-        }
     }
 }
 
@@ -935,7 +923,6 @@ fun FileListSection(
     onToggleSelectMode: () -> Unit,
     onToggleFile: (FileEntity) -> Unit,
     viewModel: FileManagerViewModel,
-    onManageTags: (String, String, Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val explorerMode by viewModel.fileExplorerMode.collectAsStateWithLifecycle()
@@ -1188,6 +1175,8 @@ fun FileListSection(
                                 onClick = {
                                     if (isMultiSelect) {
                                         onToggleFile(file)
+                                    } else {
+                                        viewModel.showLocalFilePreview(file)
                                     }
                                 }
                             )
@@ -1540,6 +1529,7 @@ fun DuplicateScannerDialog(
                                                         Color.Black.copy(alpha = 0.2f),
                                                         RoundedCornerShape(6.dp)
                                                     )
+                                                    .clickable { viewModel.showLocalFilePreview(file) }
                                                     .padding(6.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
@@ -2041,18 +2031,74 @@ fun UnlockedSafeFolderContents(
     onLockSafe: () -> Unit,
     onResetSecret: () -> Unit
 ) {
+    var activeTab by remember { mutableStateOf(0) } // 0 = Files, 1 = Backup Settings
+    
+    val isEnabled by viewModel.isSafeFolderSyncEnabled.collectAsStateWithLifecycle()
+    val syncService by viewModel.selectedSafeSyncService.collectAsStateWithLifecycle()
+    val destinationFolder by viewModel.safeSyncDestinationFolder.collectAsStateWithLifecycle()
+    val isSyncActive by viewModel.isSafeSyncActive.collectAsStateWithLifecycle()
+    val lastSyncTime by viewModel.lastSafeSyncTime.collectAsStateWithLifecycle()
+    val syncError by viewModel.safeSyncError.collectAsStateWithLifecycle()
+
     Column(modifier = Modifier.fillMaxSize()) {
+        // Tab switcher Row
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "Secure Vault Files (${safeFiles.size})",
-                style = MaterialTheme.typography.bodySmall,
-                color = ForestEcoGreen,
-                fontWeight = FontWeight.Bold
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Files Tab Button
+                Button(
+                    onClick = { activeTab = 0 },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (activeTab == 0) ForestEcoGreen else Color.Transparent,
+                        contentColor = if (activeTab == 0) Color.Black else Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.testTag("safe_tab_files")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Folder,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "Files (${safeFiles.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+
+                // Cloud Sync Tab Button
+                Button(
+                    onClick = { activeTab = 1 },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (activeTab == 1) ForestEcoGreen else Color.Transparent,
+                        contentColor = if (activeTab == 1) Color.Black else Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.testTag("safe_tab_sync")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Cloud,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "Backup Settings", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    if (isEnabled) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(Color.Yellow)
+                        )
+                    }
+                }
+            }
 
             Row {
                 IconButton(onClick = onLockSafe) {
@@ -2066,97 +2112,341 @@ fun UnlockedSafeFolderContents(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        if (safeFiles.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Default.FolderOpen,
-                        contentDescription = null,
-                        tint = Color.Gray,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Secure Vault is Empty.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextGray
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "To move sensitive items here, long-press local files and select 'Move to Safe Folder'.",
-                        fontSize = 10.sp,
-                        color = Color.Gray,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 24.dp)
-                    )
+        if (activeTab == 0) {
+            // Tab 0: Files List
+            if (safeFiles.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.FolderOpen,
+                            contentDescription = null,
+                            tint = Color.Gray,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Secure Vault is Empty.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextGray
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "To move sensitive items here, long-press local files and select 'Move to Safe Folder'.",
+                            fontSize = 10.sp,
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(safeFiles, key = { it.id }) { file ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.showLocalFilePreview(file) },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .padding(10.dp)
+                                    .fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Lock,
+                                    contentDescription = "Encrypted Item",
+                                    tint = ForestEcoGreen,
+                                    modifier = Modifier.size(18.dp)
+                                )
+
+                                Spacer(modifier = Modifier.width(10.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = file.name,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${file.category} • ${viewModel.formatFileSize(file.size)}",
+                                        fontSize = 10.sp,
+                                        color = TextGray
+                                    )
+                                }
+
+                                // Restore and Trash controls
+                                IconButton(onClick = { viewModel.restoreFromSafe(file.id) }) {
+                                    Icon(
+                                        Icons.Default.RestorePage,
+                                        contentDescription = "Unhide File",
+                                        tint = AquaticWaveBlue,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                IconButton(onClick = { viewModel.deleteSafeFile(file) }) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Delete File Permanently",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         } else {
+            // Tab 1: Cloud Sync Settings
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(safeFiles, key = { it.id }) { file ->
+                // Status banner
+                item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f)),
-                        shape = RoundedCornerShape(10.dp)
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isEnabled) ForestEcoGreen.copy(alpha = 0.08f) else Color.Gray.copy(alpha = 0.08f)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isEnabled) ForestEcoGreen.copy(alpha = 0.3f) else Color.Gray.copy(alpha = 0.3f)
+                        ),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Row(
-                            modifier = Modifier
-                                .padding(10.dp)
-                                .fillMaxWidth(),
+                            modifier = Modifier.padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                Icons.Default.Lock,
-                                contentDescription = "Encrypted Item",
-                                tint = ForestEcoGreen,
-                                modifier = Modifier.size(18.dp)
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = null,
+                                tint = if (isEnabled) ForestEcoGreen else Color.Gray,
+                                modifier = Modifier.size(24.dp)
                             )
-
-                            Spacer(modifier = Modifier.width(10.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
                                 Text(
-                                    text = file.name,
-                                    fontSize = 12.sp,
+                                    text = if (isEnabled) "Auto-Cloud Backup Active" else "Cloud Backup Disabled",
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    color = Color.White
                                 )
                                 Text(
-                                    text = "${file.category} • ${viewModel.formatFileSize(file.size)}",
+                                    text = if (isEnabled) "Files are automatically backed up securely to your selected cloud folder." else "Enable auto-sync below to automatically back up your items.",
                                     fontSize = 10.sp,
                                     color = TextGray
                                 )
                             }
+                        }
+                    }
+                }
 
-                            // Restore and Trash controls
-                            IconButton(onClick = { viewModel.restoreFromSafe(file.id) }) {
+                // AutoSync Switch Card
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.03f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    Icons.Default.RestorePage,
-                                    contentDescription = "Unhide File",
-                                    tint = AquaticWaveBlue,
-                                    modifier = Modifier.size(18.dp)
+                                    imageVector = Icons.Default.Autorenew,
+                                    contentDescription = null,
+                                    tint = ForestEcoGreen,
+                                    modifier = Modifier.size(20.dp)
                                 )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text("Automatic Cloud Sync", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                    Text("Sync when file is moved to Safe", fontSize = 10.sp, color = TextGray)
+                                }
                             }
+                            Switch(
+                                checked = isEnabled,
+                                onCheckedChange = { viewModel.isSafeFolderSyncEnabled.value = it },
+                                modifier = Modifier.testTag("safe_switch_auto_sync"),
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = ForestEcoGreen,
+                                    checkedTrackColor = ForestEcoGreen.copy(alpha = 0.4f)
+                                )
+                            )
+                        }
+                    }
+                }
 
-                            IconButton(onClick = { viewModel.deleteSafeFile(file) }) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Delete File Permanently",
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(18.dp)
+                // Cloud Provider Selection
+                item {
+                    Column {
+                        Text("Cloud Service Provider", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ForestEcoGreen, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val cloudServices = listOf("Google Drive", "Dropbox", "OneDrive")
+                            cloudServices.forEach { service ->
+                                val selected = syncService == service
+                                Card(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { viewModel.selectedSafeSyncService.value = service }
+                                        .testTag("safe_provider_$service"),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (selected) ForestEcoGreen.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f)
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (selected) ForestEcoGreen else Color.White.copy(alpha = 0.10f)
+                                    ),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = service,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (selected) Color.White else TextGray
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Destination Folder Input
+                item {
+                    Column {
+                        Text("Backup Destination Folder", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ForestEcoGreen, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
+                        OutlinedTextField(
+                            value = destinationFolder,
+                            onValueChange = { viewModel.safeSyncDestinationFolder.value = it },
+                            placeholder = { Text("e.g. /Secure_Backup", fontSize = 12.sp, color = Color.Gray) },
+                            singleLine = true,
+                            textStyle = TextStyle(fontSize = 12.sp, color = Color.White),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("safe_destination_input"),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = ForestEcoGreen,
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                                focusedLabelColor = ForestEcoGreen,
+                                cursorColor = ForestEcoGreen,
+                                focusedContainerColor = Color.White.copy(alpha = 0.02f),
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.02f)
+                            )
+                        )
+                    }
+                }
+
+                // PIN Protection Security notice
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark.copy(alpha = 0.6f)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Row(modifier = Modifier.padding(10.dp)) {
+                            Icon(Icons.Default.Security, contentDescription = null, tint = ForestEcoGreen, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text("PIN-Enforced Decryption Protection", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color.White)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Synced files are protected by your Private Vault PIN in the cloud. Original filenames are safely wrapped and can only be decrypted and opened when you verify your PIN inside this safe.",
+                                    fontSize = 9.sp,
+                                    lineHeight = 12.sp,
+                                    color = TextGray
                                 )
                             }
                         }
+                    }
+                }
+
+                // Manual Backup action section
+                item {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Button(
+                        onClick = { viewModel.syncSafeFolderToCloud() },
+                        enabled = !isSyncActive,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ForestEcoGreen,
+                            contentColor = Color.Black,
+                            disabledContainerColor = Color.Gray
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("safe_sync_now_button")
+                    ) {
+                        if (isSyncActive) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.Black, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Encrypting & Backing Up...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Sync Now", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // Sync info details (Timestamp, Error)
+                item {
+                    if (syncError != null) {
+                        Text(
+                            text = syncError ?: "",
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp),
+                            textAlign = TextAlign.Center
+                        )
+                    } else if (lastSyncTime != null) {
+                        val sdf = remember { SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()) }
+                        val formatted = lastSyncTime?.let { Date(it) }?.let { sdf.format(it) } ?: ""
+                        Text(
+                            text = "Last synchronized to $syncService: $formatted",
+                            color = ForestEcoGreen,
+                            fontSize = 10.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp),
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
             }

@@ -27,6 +27,19 @@ data class CloudFile(
     val isSynced: Boolean = false // Toggleable sync state for simulated Google Drive integration
 )
 
+data class PreviewFile(
+    val id: String,
+    val name: String,
+    val size: Long,
+    val category: String, // "Documents", "Images", "Audio", "Videos", "Others"
+    val path: String? = null,
+    val mimeType: String? = null,
+    val isCloud: Boolean = false,
+    val dateUpdated: Long? = null,
+    val textContent: String? = null,
+    val isSafe: Boolean = false
+)
+
 // Data class for Chat messages
 data class ChatMessage(
     val id: String,
@@ -127,6 +140,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     val aiSearchError = MutableStateFlow<String?>(null)
     val selectedLocalFileIds = MutableStateFlow<Set<Int>>(emptySet())
     val isMultiSelect = MutableStateFlow(false)
+    val filePreview = MutableStateFlow<PreviewFile?>(null)
     
     // --- File Explorer Specific States ---
     val fileExplorerMode = MutableStateFlow("Folders") // "Folders" or "Flat"
@@ -191,64 +205,66 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     // Simulated cloud file listing
     private val baseCloudFiles = MutableStateFlow<List<CloudFile>>(emptyList())
 
-    // --- File Tag Management Operations & States ---
-    val allTags = repository.allTags.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val selectedFilterTag = MutableStateFlow<String?>(null)
-    val uniqueAvailableTags = repository.allTags.map { tags ->
-        tags.map { it.tag }.distinct().sorted()
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    // --- Secure Safe Folder Cloud Sync Settings ---
+    val isSafeFolderSyncEnabled = MutableStateFlow(false)
+    val selectedSafeSyncService = MutableStateFlow("Google Drive")
+    val safeSyncDestinationFolder = MutableStateFlow("/Secure_Vault_Backup")
+    val isSafeSyncActive = MutableStateFlow(false)
+    val lastSafeSyncTime = MutableStateFlow<Long?>(null)
+    val safeSyncError = MutableStateFlow<String?>(null)
 
-    fun addTagToFile(fileId: String, tag: String, isLocal: Boolean) {
-        val cleanTag = tag.trim()
-        if (cleanTag.isBlank()) return
+    fun syncSafeFolderToCloud() {
+        if (!isSafeUnlocked.value) {
+            safeSyncError.value = "Secure Vault is locked. Unlock Private Vault with PIN to sync."
+            return
+        }
         viewModelScope.launch {
-            repository.insertTag(com.example.data.FileTagEntity(fileId = fileId, tag = cleanTag, isLocal = isLocal))
-        }
-    }
-
-    fun removeTagFromFile(fileId: String, tag: String) {
-        viewModelScope.launch {
-            repository.deleteTag(fileId, tag)
-        }
-    }
-
-    fun clearTagsForFile(fileId: String) {
-        viewModelScope.launch {
-            repository.deleteTagsForFile(fileId)
-        }
-    }
-
-    val cloudFiles = combine(baseCloudFiles, searchCloudQuery, isAiSearchMode, aiCloudSearchResults, selectedFilterTag, repository.allTags) { files, query, isAi, aiResults, filterTag, tagsList ->
-        var filteredList = if (isAi && aiResults != null) {
-            aiResults
-        } else {
-            files
-        }
-
-        // Apply selected tag filter if any
-        if (filterTag != null) {
-            filteredList = filteredList.filter { file ->
-                tagsList.any { t -> t.fileId == file.id && !t.isLocal && t.tag.equals(filterTag, ignoreCase = true) }
-            }
-        }
-
-        if (query.isBlank()) {
-            filteredList
-        } else {
-            val isExplicitTagQuery = query.startsWith("#")
-            val cleanQuery = if (isExplicitTagQuery) query.drop(1).trim() else query.trim()
-
-            filteredList.filter { file ->
-                val cloudTags = tagsList.filter { t -> t.fileId == file.id && !t.isLocal }.map { it.tag.lowercase() }
-                val matchesTag = cloudTags.any { it.contains(cleanQuery.lowercase()) }
-                val matchesName = file.name.contains(query, ignoreCase = true)
-
-                if (isExplicitTagQuery) {
-                    matchesTag
-                } else {
-                    matchesName || matchesTag
+            isSafeSyncActive.value = true
+            safeSyncError.value = null
+            try {
+                // Fetch current safe files
+                val files = repository.safeFiles.first()
+                if (files.isEmpty()) {
+                    safeSyncError.value = "No files in Private Vault to sync."
+                    isSafeSyncActive.value = false
+                    return@launch
                 }
+                delay(1500) // Simulate backing up each file securely
+                val currentCloud = baseCloudFiles.value.toMutableList()
+                val prefix = "[Encrypted] "
+                files.forEach { localFile ->
+                    val cloudId = "safe_sync_${localFile.id}"
+                    if (currentCloud.none { it.id == cloudId }) {
+                        currentCloud.add(
+                            CloudFile(
+                                id = cloudId,
+                                name = "$prefix${localFile.name}",
+                                size = localFile.size,
+                                dateUpdated = System.currentTimeMillis(),
+                                semanticScore = 100,
+                                isSynced = true
+                            )
+                        )
+                    }
+                }
+                baseCloudFiles.value = currentCloud
+                lastSafeSyncTime.value = System.currentTimeMillis()
+                safeSyncError.value = null
+            } catch (e: Exception) {
+                safeSyncError.value = "Sync failed: ${e.localizedMessage}"
+            } finally {
+                isSafeSyncActive.value = false
             }
+        }
+    }
+
+    val cloudFiles = combine(baseCloudFiles, searchCloudQuery, isAiSearchMode, aiCloudSearchResults) { files, query, isAi, aiResults ->
+        if (isAi && aiResults != null) {
+            aiResults
+        } else if (query.isBlank()) {
+            files
+        } else {
+            files.filter { it.name.contains(query, ignoreCase = true) }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -540,66 +556,33 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         )
     }
 
-    private data class FiveTuple(
-        val query: String,
-        val isAi: Boolean,
-        val aiResults: List<FileEntity>?,
-        val filterTag: String?,
-        val tagsList: List<com.example.data.FileTagEntity>
-    )
-
     // --- Search with Custom Match Percentage scoring calculation ---
     // Calculates how heavily the characters in the search query match this file's name.
     // Returns a dynamic matched score list of Pairs
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun calculateSearchMatchesFlow(): Flow<List<Pair<FileEntity, Double>>> {
-        return combine(searchQuery, isAiSearchMode, aiSearchResults, selectedFilterTag, repository.allTags) { query, isAi, aiResults, filterTag, tagsList ->
-            FiveTuple(query, isAi, aiResults, filterTag, tagsList)
-        }.flatMapLatest { tuple ->
-            val query = tuple.query
-            val isAi = tuple.isAi
-            val aiResults = tuple.aiResults
-            val filterTag = tuple.filterTag
-            val tagsList = tuple.tagsList
-
+        return combine(searchQuery, isAiSearchMode, aiSearchResults) { query, isAi, aiResults ->
+            Triple(query, isAi, aiResults)
+        }.flatMapLatest { (query, isAi, aiResults) ->
             if (isAi && aiResults != null) {
                 flowOf(aiResults.map { it to 100.0 })
             } else {
-                combine(repository.normalFiles, fileExplorerMode, explorerSelectedFolder) { files, mode, folder ->
-                    var filtered = if (mode == "Folders" && folder != null) {
+                val dbSourceFlow = if (query.isBlank()) {
+                    normalFiles
+                } else {
+                    repository.getNormalFilesByNameLike("%$query%")
+                }
+                combine(dbSourceFlow, fileExplorerMode, explorerSelectedFolder) { files, mode, folder ->
+                    val scopedFiles = if (mode == "Folders" && folder != null) {
                         files.filter { it.category == folder }
                     } else {
                         files
                     }
-
-                    // Apply selected tag chip filter
-                    if (filterTag != null) {
-                        filtered = filtered.filter { file ->
-                            tagsList.any { t -> t.fileId == file.id.toString() && t.isLocal && t.tag.equals(filterTag, ignoreCase = true) }
-                        }
-                    }
-
                     if (query.isBlank()) {
-                        filtered.map { it to 100.0 }
+                        scopedFiles.map { it to 100.0 }
                     } else {
-                        val isExplicitTagQuery = query.startsWith("#")
-                        val cleanQuery = if (isExplicitTagQuery) query.drop(1).trim() else query.trim()
-
-                        filtered.map { file ->
-                            val localTags = tagsList.filter { t -> t.fileId == file.id.toString() && t.isLocal }.map { it.tag.lowercase() }
-                            val matchesTag = localTags.any { it.contains(cleanQuery.lowercase()) }
-                            val matchesName = file.name.contains(query, ignoreCase = true)
-
-                            val percentage = if (matchesTag) {
-                                100.0
-                            } else if (!isExplicitTagQuery && matchesName) {
-                                getCustomSearchMatchRatio(file.name, query)
-                            } else if (!isExplicitTagQuery) {
-                                val fuzzyRatio = getCustomSearchMatchRatio(file.name, query)
-                                fuzzyRatio
-                            } else {
-                                0.0
-                            }
+                        scopedFiles.map { file ->
+                            val percentage = getCustomSearchMatchRatio(file.name, query)
                             file to percentage
                         }
                         .filter { it.second > 0.0 }
@@ -639,6 +622,73 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         val matchCount = cleanName.count { it in queryChars }
         val score = (matchCount.toDouble() / cleanName.length.toDouble()) * 30.0
         return if (score > 5.0) score else 0.0
+    }
+
+    // --- File Preview Generation and Management ---
+    fun showLocalFilePreview(file: FileEntity) {
+        viewModelScope.launch {
+            var txt: String? = null
+            if (file.category == "Documents" && (file.name.endsWith(".txt") || file.name.endsWith(".log") || file.name.endsWith(".json"))) {
+                try {
+                    val p = if (file.path.startsWith("/sdcard")) {
+                        file.path.substringAfter("/sdcard")
+                    } else {
+                        file.path
+                    }
+                    val actualFile = File(p)
+                    if (actualFile.exists() && actualFile.canRead()) {
+                        txt = actualFile.readText().take(2000)
+                    } else {
+                        // Try absolute path directly
+                        val absFile = File(file.path)
+                        if (absFile.exists() && absFile.canRead()) {
+                            txt = absFile.readText().take(2000)
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            if (txt == null) {
+                txt = generateFailsafeFileContent(file.name)
+            }
+            filePreview.value = PreviewFile(
+                id = file.id.toString(),
+                name = file.name,
+                size = file.size,
+                category = file.category,
+                path = file.path,
+                mimeType = file.mimeType,
+                isCloud = false,
+                dateUpdated = file.timestamp,
+                textContent = txt,
+                isSafe = file.isSafe
+            )
+        }
+    }
+
+    fun showCloudFilePreview(file: CloudFile) {
+        viewModelScope.launch {
+            val extension = file.name.substringAfterLast('.', "").lowercase()
+            val (category, mimeType) = mapExtensionToCategory(extension)
+            val text = getContentOfGoogleDriveFile(file.id, file.name, mimeType)
+            filePreview.value = PreviewFile(
+                id = file.id,
+                name = file.name,
+                size = file.size,
+                category = category,
+                path = null,
+                mimeType = mimeType,
+                isCloud = true,
+                dateUpdated = file.dateUpdated,
+                textContent = text,
+                isSafe = false
+            )
+        }
+    }
+
+    fun closeFilePreview() {
+        filePreview.value = null
     }
 
     // --- Local Manager Multi-select Actions ---
@@ -943,6 +993,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             val idsToMove = selectedLocalFileIds.value.toList()
             repository.updateSafeStatus(idsToMove, isSafe = true)
+            if (isSafeFolderSyncEnabled.value) {
+                syncSafeFolderToCloud()
+            }
             clearLocalSelection()
         }
     }
