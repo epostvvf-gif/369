@@ -35,6 +35,7 @@ import com.example.viewmodel.FileManagerViewModel
 import com.example.viewmodel.PreviewFile
 import com.example.ui.theme.*
 import java.io.File
+import kotlinx.coroutines.launch
 import kotlin.math.sin
 
 @OptIn(ExperimentalAnimationApi::class)
@@ -44,19 +45,25 @@ fun FilePreviewDialog(
     viewModel: FileManagerViewModel,
     onDismiss: () -> Unit
 ) {
+    var isDownloading by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableStateOf(0f) }
+    val scope = rememberCoroutineScope()
+
     Dialog(
-        onDismissRequest = { onDismiss() },
+        onDismissRequest = { 
+            if (!isDownloading) onDismiss() 
+        },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true
+            dismissOnBackPress = !isDownloading,
+            dismissOnClickOutside = !isDownloading
         )
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.75f))
-                .clickable(enabled = true, onClick = { onDismiss() })
+                .clickable(enabled = !isDownloading, onClick = { onDismiss() })
                 .padding(24.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -79,12 +86,12 @@ fun FilePreviewDialog(
                     PreviewHeader(
                         file = previewFile,
                         viewModel = viewModel,
-                        onClose = onDismiss
+                        onClose = { if (!isDownloading) onDismiss() }
                     )
 
                     HorizontalDivider(color = Color.White.copy(alpha = 0.10f))
 
-                    // Content Section with dynamic category renderers
+                    // Content Section with dynamic category renderers or Download Overlay
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -92,12 +99,62 @@ fun FilePreviewDialog(
                             .background(CharcoalDarkBg),
                         contentAlignment = Alignment.Center
                     ) {
-                        when (previewFile.category) {
-                            "Images" -> ImagePreviewer(file = previewFile)
-                            "Documents" -> DocumentPreviewer(file = previewFile)
-                            "Audio" -> AudioPreviewer(file = previewFile)
-                            "Videos" -> VideoPreviewer(file = previewFile)
-                            else -> OthersPreviewer(file = previewFile)
+                        if (isDownloading) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(24.dp)
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.size(100.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        progress = { downloadProgress },
+                                        modifier = Modifier.fillMaxSize(),
+                                        strokeWidth = 6.dp,
+                                        color = AquaticWaveBlue,
+                                        trackColor = Color.White.copy(alpha = 0.08f)
+                                    )
+                                    Text(
+                                        text = "${(downloadProgress * 100).toInt()}%",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Text(
+                                    text = "Synchronizing cloud file stream...",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Decrypting secure sandbox metadata signature",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextGray
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                LinearProgressIndicator(
+                                    progress = { downloadProgress },
+                                    modifier = Modifier
+                                        .width(200.dp)
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp)),
+                                    color = AquaticWaveBlue,
+                                    trackColor = Color.White.copy(alpha = 0.08f)
+                                )
+                            }
+                        } else {
+                            when (previewFile.category) {
+                                "Images" -> ImagePreviewer(file = previewFile)
+                                "Documents" -> DocumentPreviewer(file = previewFile)
+                                "Audio" -> AudioPreviewer(file = previewFile)
+                                "Videos" -> VideoPreviewer(file = previewFile)
+                                else -> OthersPreviewer(file = previewFile)
+                            }
                         }
                     }
 
@@ -107,6 +164,20 @@ fun FilePreviewDialog(
                     PreviewFooter(
                         file = previewFile,
                         viewModel = viewModel,
+                        isDownloading = isDownloading,
+                        downloadProgress = downloadProgress,
+                        onDownload = {
+                            isDownloading = true
+                            downloadProgress = 0f
+                            scope.launch {
+                                for (p in 1..100) {
+                                    kotlinx.coroutines.delay(15) // total ~1.5s
+                                    downloadProgress = p / 100f
+                                }
+                                isDownloading = false
+                                onDismiss()
+                            }
+                        },
                         onClose = onDismiss
                     )
                 }
@@ -217,6 +288,9 @@ fun PreviewHeader(
 fun PreviewFooter(
     file: PreviewFile,
     viewModel: FileManagerViewModel,
+    isDownloading: Boolean,
+    downloadProgress: Float,
+    onDownload: () -> Unit,
     onClose: () -> Unit
 ) {
     Row(
@@ -249,17 +323,25 @@ fun PreviewFooter(
         ) {
             if (file.isCloud) {
                 Button(
-                    onClick = {
-                        // Mock restore/download to local
-                        onClose()
-                    },
+                    onClick = onDownload,
+                    enabled = !isDownloading,
                     colors = ButtonDefaults.buttonColors(containerColor = AquaticWaveBlue),
                     shape = RoundedCornerShape(12.dp),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                 ) {
-                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Download", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    if (isDownloading) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Downloading...", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    } else {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Download", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
                 }
             } else {
                 Button(
@@ -287,6 +369,7 @@ fun PreviewFooter(
 @Composable
 fun ImagePreviewer(file: PreviewFile) {
     var hasError by remember { mutableStateOf(false) }
+    var isLoadingImage by remember { mutableStateOf(true) }
 
     Box(
         modifier = Modifier
@@ -296,16 +379,29 @@ fun ImagePreviewer(file: PreviewFile) {
     ) {
         if (!file.isCloud && file.path != null && !hasError) {
             val localFile = File(file.path)
-            AsyncImage(
-                model = localFile,
-                contentDescription = file.name,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(16.dp))
-                    .testTag("image_preview_coil"),
-                contentScale = ContentScale.Fit,
-                onError = { hasError = true }
-            )
+            Box(contentAlignment = Alignment.Center) {
+                AsyncImage(
+                    model = localFile,
+                    contentDescription = file.name,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(16.dp))
+                        .testTag("image_preview_coil"),
+                    contentScale = ContentScale.Fit,
+                    onLoading = { isLoadingImage = true },
+                    onSuccess = { isLoadingImage = false },
+                    onError = { 
+                        isLoadingImage = false
+                        hasError = true 
+                    }
+                )
+                if (isLoadingImage) {
+                    CircularProgressIndicator(
+                        color = CustomFlameOrange,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
         } else {
             hasError = true
         }

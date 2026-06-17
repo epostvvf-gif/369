@@ -111,6 +111,9 @@ dependencies {
   testImplementation(libs.roborazzi)
   testImplementation(libs.roborazzi.compose)
   testImplementation(libs.roborazzi.junit.rule)
+  testImplementation(libs.junit.jupiter.api)
+  testRuntimeOnly(libs.junit.jupiter.engine)
+  testRuntimeOnly(libs.junit.platform.launcher)
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
   androidTestImplementation(libs.androidx.espresso.core)
@@ -120,4 +123,17 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+}
+
+tasks.register<Test>("testCoreLogic") {
+    group = "verification"
+    description = "Runs the suite of unit tests for file previewer and Gemini search integration using JUnit 5."
+    dependsOn("compileDebugUnitTestKotlin")
+    val testDebugUnitTest = tasks.getByName<Test>("testDebugUnitTest")
+    testClassesDirs = testDebugUnitTest.testClassesDirs
+    classpath = testDebugUnitTest.classpath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching("com.example.core.*")
+    }
 }
