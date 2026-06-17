@@ -349,6 +349,11 @@ fun StorageGaugeCard(
     val totalJunkSize = junkFiles.sumOf { it.size }
     val totalSafeSize = safeFiles.sumOf { it.size }
 
+    val imagesSize = normalFiles.filter { it.category == "Images" }.sumOf { it.size }
+    val videosSize = normalFiles.filter { it.category == "Videos" }.sumOf { it.size }
+    val documentsSize = normalFiles.filter { it.category == "Documents" }.sumOf { it.size }
+    val othersSize = normalFiles.filter { it.category != "Images" && it.category != "Videos" && it.category != "Documents" }.sumOf { it.size }
+
     val selectedPartition by viewModel.selectedStoragePartition.collectAsStateWithLifecycle()
 
     val internalTotal by viewModel.internalTotalSpace.collectAsStateWithLifecycle()
@@ -500,7 +505,154 @@ fun StorageGaugeCard(
                     size = viewModel.formatFileSize(totalSafeSize)
                 )
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), thickness = 1.dp)
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Text(
+                text = "File Type Distribution",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Black,
+                color = Color.White
+            )
+            
+            DiskUsagePieChart(
+                imagesSize = imagesSize,
+                videosSize = videosSize,
+                documentsSize = documentsSize,
+                othersSize = othersSize,
+                viewModel = viewModel
+            )
         }
+    }
+}
+
+@Composable
+fun DiskUsagePieChart(
+    imagesSize: Long,
+    videosSize: Long,
+    documentsSize: Long,
+    othersSize: Long,
+    viewModel: FileManagerViewModel
+) {
+    val totalSize = imagesSize + videosSize + documentsSize + othersSize
+    if (totalSize == 0L) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(120.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "No files found. Add mock files to see breakdown.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        return
+    }
+
+    val imagesPct = imagesSize.toFloat() / totalSize
+    val videosPct = videosSize.toFloat() / totalSize
+    val documentsPct = documentsSize.toFloat() / totalSize
+    val othersPct = othersSize.toFloat() / totalSize
+
+    val slices = listOf(
+        Pair(imagesPct, CustomFlameOrange), // Images
+        Pair(videosPct, CosmicPrimary),     // Videos
+        Pair(documentsPct, AquaticWaveBlue),// Documents
+        Pair(othersPct, Color.Gray)         // Others
+    ).filter { it.first > 0f }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        // Draw Chart
+        Box(
+            modifier = Modifier
+                .size(110.dp)
+                .testTag("disk_usage_pie_chart"),
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                var startAngle = -90f
+                slices.forEach { (pct, color) ->
+                    val sweepAngle = pct * 360f
+                    drawArc(
+                        color = color,
+                        startAngle = startAngle,
+                        sweepAngle = sweepAngle,
+                        useCenter = false,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 12.dp.toPx(), 
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round
+                        )
+                    )
+                    startAngle += sweepAngle
+                }
+            }
+            // Text in center of Donut
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = viewModel.formatFileSize(totalSize),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
+                    color = Color.White
+                )
+                Text(
+                    text = "Total Files",
+                    fontSize = 9.sp,
+                    color = Color.Gray,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(20.dp))
+
+        // Legend details
+        Column(
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.wrapContentWidth()
+        ) {
+            LegendRowItem(color = CustomFlameOrange, label = "Images", pct = imagesPct, sizeStr = viewModel.formatFileSize(imagesSize))
+            LegendRowItem(color = CosmicPrimary, label = "Videos", pct = videosPct, sizeStr = viewModel.formatFileSize(videosSize))
+            LegendRowItem(color = AquaticWaveBlue, label = "Documents", pct = documentsPct, sizeStr = viewModel.formatFileSize(documentsSize))
+            LegendRowItem(color = Color.Gray, label = "Others", pct = othersPct, sizeStr = viewModel.formatFileSize(othersSize))
+        }
+    }
+}
+
+@Composable
+fun LegendRowItem(color: Color, label: String, pct: Float, sizeStr: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(color)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "$label (${(pct * 100).toInt()}%):",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.LightGray,
+            modifier = Modifier.width(80.dp)
+        )
+        Text(
+            text = sizeStr,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            color = Color.White
+        )
     }
 }
 
