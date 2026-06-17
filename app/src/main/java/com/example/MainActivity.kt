@@ -43,6 +43,17 @@ import com.example.ui.theme.*
 import com.example.viewmodel.FileManagerViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,6 +70,51 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainAppContainer() {
     val viewModel: FileManagerViewModel = viewModel()
+    val context = LocalContext.current
+
+    // Launcher for older Android storage permissions
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        viewModel.scanRealFilesystem()
+    }
+    
+    // Launcher for all files access on Android 11+
+    val allFilesLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        viewModel.scanRealFilesystem()
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.scanRealFilesystem()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                try {
+                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                    }
+                    allFilesLauncher.launch(intent)
+                } catch (e: Exception) {
+                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                    allFilesLauncher.launch(intent)
+                }
+            }
+        } else {
+            val permissions = arrayOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            )
+            val alreadyGranted = permissions.all {
+                ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+            }
+            if (!alreadyGranted) {
+                permissionLauncher.launch(permissions)
+            }
+        }
+    }
+
     var selectedIndex by remember { mutableStateOf(0) }
     val isChatDrawerOpen by viewModel.isChatDrawerOpen.collectAsStateWithLifecycle()
     

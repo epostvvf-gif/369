@@ -59,11 +59,13 @@ fun DriveScreen(
             if (accountVal == null) {
                 // If logged out - show OAuth simulated login screen
                 CloudLoginSimScreen(
-                    onLoginDefault = {
+                    onLoginDefault = { token ->
                         viewModel.addCloudAccount("epostvvf@gmail.com")
+                        viewModel.updateGoogleDriveToken(token)
                     },
-                    onLoginCustom = { email ->
+                    onLoginCustom = { email, token ->
                         viewModel.addCloudAccount(email)
+                        viewModel.updateGoogleDriveToken(token)
                     }
                 )
             } else {
@@ -72,6 +74,9 @@ fun DriveScreen(
                     account = accountVal,
                     onSwitchClick = { viewModel.showGlobalAccountSwitcher.value = true }
                 )
+
+                // Live Google Drive REST Client connection card
+                LiveGoogleDriveConnectionCard(viewModel = viewModel)
 
                 // Cloud Storage & Sync Dashboard Status simulation
                 CloudStorageDashboardCard(
@@ -205,8 +210,8 @@ fun CloudBanner(
 // --- OAuth / Simul Login Screen ---
 @Composable
 fun CloudLoginSimScreen(
-    onLoginDefault: () -> Unit,
-    onLoginCustom: (String) -> Unit
+    onLoginDefault: (String) -> Unit,
+    onLoginCustom: (String, String) -> Unit
 ) {
     var inputEmail by remember { mutableStateOf("") }
     var inputToken by remember { mutableStateOf("oauth_token_client_vishwa_58284_v7") }
@@ -281,9 +286,9 @@ fun CloudLoginSimScreen(
             Button(
                 onClick = {
                     if (inputEmail.isNotBlank()) {
-                        onLoginCustom(inputEmail)
+                        onLoginCustom(inputEmail, inputToken)
                     } else {
-                        onLoginDefault()
+                        onLoginDefault(inputToken)
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
@@ -294,8 +299,184 @@ fun CloudLoginSimScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            TextButton(onClick = onLoginDefault) {
+            TextButton(onClick = { onLoginDefault("oauth_token_client_vishwa_58284_v7") }) {
                 Text("Bypass with default pilot (epostvvf@gmail.com)", color = AquaticWaveBlue, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+// --- Live Google Drive REST client connection Card ---
+@Composable
+fun LiveGoogleDriveConnectionCard(
+    viewModel: FileManagerViewModel
+) {
+    val accessToken by viewModel.googleDriveAccessToken.collectAsStateWithLifecycle()
+    val isFetching by viewModel.isFetchingGoogleDrive.collectAsStateWithLifecycle()
+    val connectionError by viewModel.googleDriveConnectionError.collectAsStateWithLifecycle()
+
+    var tokenInput by remember { mutableStateOf(accessToken) }
+    var isEditing by remember { mutableStateOf(accessToken.isBlank()) }
+
+    LaunchedEffect(accessToken) {
+        if (tokenInput != accessToken) {
+            tokenInput = accessToken
+        }
+        if (accessToken.isNotBlank() && isEditing) {
+            isEditing = false
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.CloudSync,
+                        contentDescription = null,
+                        tint = AquaticWaveBlue,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Live Google Drive Connection",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                if (isFetching) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = AquaticWaveBlue
+                    )
+                } else {
+                    Row {
+                        IconButton(
+                            onClick = { viewModel.fetchRealGoogleDriveFiles() },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Refresh live files",
+                                tint = AquaticWaveBlue,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        IconButton(
+                            onClick = { isEditing = !isEditing },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isEditing) Icons.Default.Check else Icons.Default.Edit,
+                                contentDescription = "Edit access token",
+                                tint = CustomFlameOrange,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (isEditing) {
+                Text(
+                    text = "Provide a real Google Drive OAuth Access Token to fetch public/shared files in real-time without artificial sandbox limitations:",
+                    fontSize = 11.sp,
+                    color = TextGray
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = tokenInput,
+                        onValueChange = { tokenInput = it },
+                        placeholder = { Text("ya29.a0Ac...", fontSize = 11.sp, color = Color.Gray) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("live_token_input"),
+                        textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = AquaticWaveBlue,
+                            unfocusedBorderColor = Color.LightGray.copy(alpha = 0.5f)
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            viewModel.updateGoogleDriveToken(tokenInput)
+                            isEditing = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AquaticWaveBlue),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text("Connect", fontSize = 12.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            } else {
+                Text(
+                    text = if (accessToken.isNotBlank()) "Status: Active live API synchronization" else "Status: Sandbox Emulation",
+                    fontSize = 12.sp,
+                    color = if (accessToken.isNotBlank()) ForestEcoGreen else CustomFlameOrange,
+                    fontWeight = FontWeight.Bold
+                )
+
+                if (accessToken.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Using Access Token: ${accessToken.take(15)}..." + " (Click edit icon to renew/change)",
+                        fontSize = 11.sp,
+                        color = TextGray
+                    )
+                }
+            }
+
+            connectionError?.let { err ->
+                Spacer(modifier = Modifier.height(10.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ErrorOutline,
+                            contentDescription = "Error",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = err,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
             }
         }
     }
@@ -520,6 +701,28 @@ fun CloudStorageDashboardCard(
                             checked = isAutoSync,
                             onCheckedChange = { viewModel.isAutoSyncEnabled.value = it },
                             modifier = Modifier.testTag("switch_auto_sync")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val isDriveSyncEnabled by viewModel.isGoogleDriveSyncEnabled.collectAsStateWithLifecycle()
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Live Google Drive Sync", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text("Actively sync remote files. Disable to save bandwidth.", fontSize = 10.sp, color = TextGray)
+                        }
+                        Switch(
+                            checked = isDriveSyncEnabled,
+                            onCheckedChange = { viewModel.updateGoogleDriveSyncEnabled(it) },
+                            modifier = Modifier.testTag("switch_drive_sync_enabled")
                         )
                     }
 

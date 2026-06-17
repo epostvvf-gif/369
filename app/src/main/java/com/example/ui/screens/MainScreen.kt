@@ -334,10 +334,18 @@ fun StorageGaugeCard(
     val totalNormalSize = normalFiles.sumOf { it.size }
     val totalJunkSize = junkFiles.sumOf { it.size }
     val totalSafeSize = safeFiles.sumOf { it.size }
-    val simulatedCap = 500L * 1024L * 1024L // 500 MB simulated system cap
 
-    val totalUsed = totalNormalSize + totalJunkSize + totalSafeSize
-    val usedRatio = (totalUsed.toFloat() / simulatedCap.toFloat()).coerceIn(0f, 1f)
+    val selectedPartition by viewModel.selectedStoragePartition.collectAsStateWithLifecycle()
+
+    val internalTotal by viewModel.internalTotalSpace.collectAsStateWithLifecycle()
+    val internalUsed by viewModel.internalUsedSpace.collectAsStateWithLifecycle()
+    
+    val sdTotal by viewModel.sdCardTotalSpace.collectAsStateWithLifecycle()
+    val sdUsed by viewModel.sdCardUsedSpace.collectAsStateWithLifecycle()
+
+    val activeTotal = if (selectedPartition == "SD Card") sdTotal else internalTotal
+    val activeUsed = if (selectedPartition == "SD Card") sdUsed else internalUsed
+    val usedRatio = (activeUsed.toFloat() / activeTotal.toFloat()).coerceIn(0f, 1f)
 
     Card(
         modifier = Modifier
@@ -348,8 +356,6 @@ fun StorageGaugeCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            val selectedPartition by viewModel.selectedStoragePartition.collectAsStateWithLifecycle()
-
             // Dynamic Storage Switcher (Internal storage vs SD Card)
             Row(
                 modifier = Modifier
@@ -427,7 +433,7 @@ fun StorageGaugeCard(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "${viewModel.formatFileSize(totalUsed)} / ${viewModel.formatFileSize(simulatedCap)} used",
+                    text = "${viewModel.formatFileSize(activeUsed)} / ${viewModel.formatFileSize(activeTotal)} used",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

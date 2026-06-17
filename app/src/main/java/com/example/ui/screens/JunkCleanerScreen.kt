@@ -42,6 +42,8 @@ fun JunkCleanerScreen(
     val scannedJunkItems by viewModel.scannedJunkItems.collectAsStateWithLifecycle()
     val junkBytesCleaned by viewModel.junkBytesCleaned.collectAsStateWithLifecycle()
     val showCelebrationDialog by viewModel.showCelebrationDialog.collectAsStateWithLifecycle()
+    val isGeminiJunkScanning by viewModel.isGeminiJunkScanning.collectAsStateWithLifecycle()
+    val aiSuggestedJunkItems by viewModel.aiSuggestedJunkItems.collectAsStateWithLifecycle()
 
     // Auto trigger scan on initial load if empty to make it engaging
     LaunchedEffect(Unit) {
@@ -72,10 +74,28 @@ fun JunkCleanerScreen(
                         .fillMaxSize()
                         .padding(16.dp)
                 ) {
+                    var activeSubTab by remember { mutableStateOf(0) } // 0: Standard, 1: Gemini AI
+
                     val checkedItems = scannedJunkItems.filter { it.isChecked }
                     val totalReclaimableSize = checkedItems.sumOf { it.size }
                     val cacheItems = scannedJunkItems.filter { !it.isFolder }
                     val emptyFolders = scannedJunkItems.filter { it.isFolder }
+
+                    val aiCheckedItems = aiSuggestedJunkItems.filter { it.isChecked }
+                    val totalAiReclaimableSize = aiCheckedItems.sumOf { it.size }
+                    
+                    // Filter duplicate items vs. large files based on names/reasons
+                    val aiDuplicateItems = aiSuggestedJunkItems.filter { 
+                        it.name.contains("Copy", ignoreCase = true) || 
+                        it.name.contains("backup", ignoreCase = true) || 
+                        it.name.contains("_dup", ignoreCase = true) || 
+                        it.aiReason?.contains("duplicate", ignoreCase = true) == true 
+                    }
+                    val aiLargeItems = aiSuggestedJunkItems.filter { 
+                        !aiDuplicateItems.contains(it) 
+                    }
+
+                    val currentReclaimSize = if (activeSubTab == 0) totalReclaimableSize else totalAiReclaimableSize
 
                     // Brief explanation
                     Text(
@@ -84,6 +104,65 @@ fun JunkCleanerScreen(
                         color = TextGray,
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
+
+                    // Tab Selector Row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp)
+                            .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(10.dp))
+                            .padding(4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (activeSubTab == 0) CustomFlameOrange else Color.Transparent)
+                                .clickable { activeSubTab = 0 }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "Standard Clean",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (activeSubTab == 0) Color.White else TextGray
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (activeSubTab == 1) CustomFlameOrange else Color.Transparent)
+                                .clickable { 
+                                    activeSubTab = 1 
+                                    if (aiSuggestedJunkItems.isEmpty() && !isGeminiJunkScanning) {
+                                        viewModel.startGeminiJunkScan()
+                                    }
+                                }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = if (activeSubTab == 1) Color.White else CustomFlameOrange,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "Gemini AI Smart Check",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (activeSubTab == 1) Color.White else TextGray
+                                )
+                            }
+                        }
+                    }
 
                     // Reclaim Metrics Card
                     Card(
@@ -102,14 +181,14 @@ fun JunkCleanerScreen(
                         ) {
                             Column {
                                 Text(
-                                    text = "Ready to Reclaim",
+                                    text = if (activeSubTab == 0) "Ready to Reclaim" else "Gemini AI Suggested Space",
                                     fontSize = 12.sp,
                                     color = TextGray,
                                     fontWeight = FontWeight.Medium
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = viewModel.formatFileSize(totalReclaimableSize),
+                                    text = viewModel.formatFileSize(currentReclaimSize),
                                     fontSize = 24.sp,
                                     color = CustomFlameOrange,
                                     fontWeight = FontWeight.Black
@@ -124,7 +203,7 @@ fun JunkCleanerScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    Icons.Default.BatterySaver,
+                                    imageVector = if (activeSubTab == 0) Icons.Default.BatterySaver else Icons.Default.AutoAwesome,
                                     contentDescription = null,
                                     tint = CustomFlameOrange,
                                     modifier = Modifier.size(24.dp)
@@ -138,104 +217,212 @@ fun JunkCleanerScreen(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        if (cacheItems.isNotEmpty()) {
-                            item {
-                                Text(
-                                    text = "CACHE & TEMPORARY FILES (${cacheItems.size})",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = CustomFlameOrange,
-                                    modifier = Modifier.padding(vertical = 4.dp)
-                                )
-                            }
-                            items(cacheItems) { item ->
-                                JunkCleanerItemRow(
-                                    item = item,
-                                    onToggle = { viewModel.toggleJunkItem(item.id) },
-                                    viewModel = viewModel
-                                )
-                            }
-                        }
-
-                        if (emptyFolders.isNotEmpty()) {
-                            item {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "EMPTY SYSTEM FOLDERS (${emptyFolders.size})",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = AquaticWaveBlue,
-                                    modifier = Modifier.padding(vertical = 4.dp)
-                                )
-                            }
-                            items(emptyFolders) { item ->
-                                JunkCleanerItemRow(
-                                    item = item,
-                                    onToggle = { viewModel.toggleJunkItem(item.id) },
-                                    viewModel = viewModel
-                                )
-                            }
-                        }
-
-                        if (scannedJunkItems.isEmpty()) {
-                            item {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 48.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = ForestEcoGreen,
-                                        modifier = Modifier.size(48.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
+                        if (activeSubTab == 0) {
+                            // Standard Clean Lists
+                            if (cacheItems.isNotEmpty()) {
+                                item {
                                     Text(
-                                        text = "Your storage is fully optimized!",
-                                        fontSize = 15.sp,
+                                        text = "CACHE & TEMPORARY FILES (${cacheItems.size})",
+                                        style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.White
+                                        color = CustomFlameOrange,
+                                        modifier = Modifier.padding(vertical = 4.dp)
                                     )
-                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+                                items(cacheItems) { item ->
+                                    JunkCleanerItemRow(
+                                        item = item,
+                                        onToggle = { viewModel.toggleJunkItem(item.id) },
+                                        viewModel = viewModel
+                                    )
+                                }
+                            }
+
+                            if (emptyFolders.isNotEmpty()) {
+                                item {
+                                    Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        text = "No residual junk folders or cache files detected.",
-                                        fontSize = 12.sp,
-                                        color = TextGray,
-                                        textAlign = TextAlign.Center
+                                        text = "EMPTY SYSTEM FOLDER ENTRIES (${emptyFolders.size})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AquaticWaveBlue,
+                                        modifier = Modifier.padding(vertical = 4.dp)
                                     )
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Button(
-                                        onClick = { viewModel.startJunkScan() },
-                                        colors = ButtonDefaults.buttonColors(containerColor = DynamicDarkM3PillColor),
-                                        shape = RoundedCornerShape(12.dp)
+                                }
+                                items(emptyFolders) { item ->
+                                    JunkCleanerItemRow(
+                                        item = item,
+                                        onToggle = { viewModel.toggleJunkItem(item.id) },
+                                        viewModel = viewModel
+                                    )
+                                }
+                            }
+
+                            if (scannedJunkItems.isEmpty()) {
+                                item {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 48.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
-                                        Text("Scan Again", fontWeight = FontWeight.Bold, color = Color.White)
+                                        Icon(
+                                            Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = ForestEcoGreen,
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text(
+                                            text = "Your storage is fully optimized!",
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "No residual junk folders or cache files detected.",
+                                            fontSize = 12.sp,
+                                            color = TextGray,
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Button(
+                                            onClick = { viewModel.startJunkScan() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = DynamicDarkM3PillColor),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Text("Scan Again", fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Gemini AI Smart Clean Lists
+                            if (isGeminiJunkScanning) {
+                                item {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 48.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        CircularProgressIndicator(color = CustomFlameOrange)
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = "Gemini AI indexing-engine scanning file metadata...",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White,
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Comparing identical sizes and file naming structures",
+                                            fontSize = 11.sp,
+                                            color = TextGray,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
+                            } else {
+                                if (aiDuplicateItems.isNotEmpty()) {
+                                    item {
+                                        Text(
+                                            text = "GEMINI DETECTED DUPLICATE COPIES (${aiDuplicateItems.size})",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = CustomFlameOrange,
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        )
+                                    }
+                                    items(aiDuplicateItems) { item ->
+                                        JunkCleanerItemRow(
+                                            item = item,
+                                            onToggle = { viewModel.toggleGeminiJunkItem(item.id) },
+                                            viewModel = viewModel
+                                        )
+                                    }
+                                }
+
+                                if (aiLargeItems.isNotEmpty()) {
+                                    item {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "GEMINI CRITICAL LARGE FILES WARNING (>10MB) (${aiLargeItems.size})",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = CustomFlameOrange,
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        )
+                                    }
+                                    items(aiLargeItems) { item ->
+                                        JunkCleanerItemRow(
+                                            item = item,
+                                            onToggle = { viewModel.toggleGeminiJunkItem(item.id) },
+                                            viewModel = viewModel
+                                        )
+                                    }
+                                }
+
+                                if (aiSuggestedJunkItems.isEmpty()) {
+                                    item {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 48.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Verified,
+                                                contentDescription = null,
+                                                tint = ForestEcoGreen,
+                                                modifier = Modifier.size(48.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Text(
+                                                text = "AI Metadata Analysis Clean!",
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "Gemini checked all files and found no duplicated replicas or redundant large logs.",
+                                                fontSize = 12.sp,
+                                                color = TextGray,
+                                                textAlign = TextAlign.Center
+                                            )
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            Button(
+                                                onClick = { viewModel.startGeminiJunkScan() },
+                                                colors = ButtonDefaults.buttonColors(containerColor = DynamicDarkM3PillColor),
+                                                shape = RoundedCornerShape(12.dp)
+                                            ) {
+                                                Text("Analyze Again", fontWeight = FontWeight.Bold, color = Color.White)
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
 
-                    // Primary Clean Trigger Sticky Button Row
-                    if (scannedJunkItems.isNotEmpty()) {
+                    // Sticky Action Buttons Bottom Row
+                    if (activeSubTab == 0 && scannedJunkItems.isNotEmpty()) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 8.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // "Clean Selected" Outlined Button
                             OutlinedButton(
                                 onClick = { viewModel.cleanSelectedJunk() },
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp)
                                     .testTag("btn_clean_selected_junk"),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = CustomFlameOrange
-                                ),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = CustomFlameOrange),
                                 border = BorderStroke(1.5.dp, CustomFlameOrange.copy(alpha = 0.8f)),
                                 shape = RoundedCornerShape(12.dp),
                                 enabled = checkedItems.isNotEmpty()
@@ -251,23 +438,20 @@ fun JunkCleanerScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Selected",
+                                        text = "Clean Selected",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 12.sp
                                     )
                                 }
                             }
 
-                            // "Clear All" Primary Action Button
                             Button(
                                 onClick = { viewModel.cleanAllJunk() },
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp)
                                     .testTag("btn_clean_all_junk"),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = CustomFlameOrange
-                                ),
+                                colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Row(
@@ -283,6 +467,71 @@ fun JunkCleanerScreen(
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = "Clear All",
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 12.sp,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+                    } else if (activeSubTab == 1 && aiSuggestedJunkItems.isNotEmpty() && !isGeminiJunkScanning) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.startGeminiJunkScan() },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .testTag("btn_re_scan_ai_junk"),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextGray),
+                                border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.15f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "AI Review",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = { viewModel.cleanSelectedGeminiJunk() },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .testTag("btn_purge_selected_ai_junk"),
+                                colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
+                                shape = RoundedCornerShape(12.dp),
+                                enabled = aiCheckedItems.isNotEmpty()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Purge Suggested",
                                         fontWeight = FontWeight.Black,
                                         fontSize = 12.sp,
                                         color = Color.White
@@ -571,6 +820,31 @@ fun JunkCleanerItemRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            if (item.isAiSuggested && !item.aiReason.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(3.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .background(CustomFlameOrange.copy(alpha = 0.08f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "AI Reason",
+                        tint = CustomFlameOrange,
+                        modifier = Modifier.size(10.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = item.aiReason,
+                        fontSize = 9.sp,
+                        color = CustomFlameOrange,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(1.dp))
             Text(
                 text = viewModel.formatFileSize(item.size),
