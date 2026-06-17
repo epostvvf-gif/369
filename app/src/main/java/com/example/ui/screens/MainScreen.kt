@@ -74,6 +74,10 @@ fun MainScreen(
     var showAddFileDialog by remember { mutableStateOf(false) }
     var inSafeViewMode by remember { mutableStateOf(false) }
 
+    var tagManagerFileId by remember { mutableStateOf<String?>(null) }
+    var tagManagerFileName by remember { mutableStateOf<String?>(null) }
+    var tagManagerIsLocal by remember { mutableStateOf(true) }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -128,6 +132,9 @@ fun MainScreen(
                     onAddClick = { showAddFileDialog = true }
                 )
 
+                // Horizontal Tag Filter Chips Row
+                TagFilterRow(viewModel = viewModel)
+
                 // Multiple choice toggle notification
                 if (isMultiSelect) {
                     MultiSelectActionBar(
@@ -147,6 +154,11 @@ fun MainScreen(
                     onToggleSelectMode = { viewModel.isMultiSelect.value = true },
                     onToggleFile = { viewModel.toggleLocalFileSelection(it.id) },
                     viewModel = viewModel,
+                    onManageTags = { id, name, isLocal ->
+                        tagManagerFileId = id
+                        tagManagerFileName = name
+                        tagManagerIsLocal = isLocal
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -204,6 +216,20 @@ fun MainScreen(
                 onAddFile = { name, mime, size, cat ->
                     viewModel.addManualLocalFile(name, mime, size, cat)
                     showAddFileDialog = false
+                }
+            )
+        }
+
+        // Active Tag Manager Dialog Overlay
+        tagManagerFileId?.let { fileId ->
+            TagManagerDialog(
+                fileId = fileId,
+                fileName = tagManagerFileName ?: "Unknown",
+                isLocal = tagManagerIsLocal,
+                viewModel = viewModel,
+                onDismiss = {
+                    tagManagerFileId = null
+                    tagManagerFileName = null
                 }
             )
         }
@@ -909,6 +935,7 @@ fun FileListSection(
     onToggleSelectMode: () -> Unit,
     onToggleFile: (FileEntity) -> Unit,
     viewModel: FileManagerViewModel,
+    onManageTags: (String, String, Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val explorerMode by viewModel.fileExplorerMode.collectAsStateWithLifecycle()

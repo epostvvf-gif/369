@@ -9,6 +9,7 @@ class FileRepository(private val fileDao: FileDao) {
     val safeFiles: Flow<List<FileEntity>> = fileDao.getSafeFiles()
     val junkFiles: Flow<List<FileEntity>> = fileDao.getJunkFiles()
     val allFiles: Flow<List<FileEntity>> = fileDao.getAllFiles()
+    val allTags: Flow<List<FileTagEntity>> = fileDao.getAllTagsFlow()
 
     fun getNormalFilesByNameLike(query: String): Flow<List<FileEntity>> = fileDao.getNormalFilesByNameLike(query)
 
@@ -18,6 +19,11 @@ class FileRepository(private val fileDao: FileDao) {
     suspend fun deleteFileById(id: Int) = fileDao.deleteFileById(id)
     suspend fun updateSafeStatus(ids: List<Int>, isSafe: Boolean) = fileDao.updateSafeStatus(ids, isSafe)
     suspend fun clearAllJunk() = fileDao.clearAllJunk()
+
+    // Tag management
+    suspend fun insertTag(tag: FileTagEntity) = fileDao.insertTag(tag)
+    suspend fun deleteTag(fileId: String, tag: String) = fileDao.deleteTag(fileId, tag)
+    suspend fun deleteTagsForFile(fileId: String) = fileDao.deleteTagsForFile(fileId)
 
     // PIN management
     suspend fun getSafePin(): SafePinEntity? = fileDao.getSafePin()

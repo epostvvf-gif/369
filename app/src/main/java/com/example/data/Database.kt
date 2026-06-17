@@ -24,8 +24,27 @@ data class SafePinEntity(
     val isRegistered: Boolean = true
 )
 
+@Entity(tableName = "file_tags", primaryKeys = ["fileId", "tag"])
+data class FileTagEntity(
+    val fileId: String,
+    val tag: String,
+    val isLocal: Boolean
+)
+
 @Dao
 interface FileDao {
+    @Query("SELECT * FROM file_tags")
+    fun getAllTagsFlow(): Flow<List<FileTagEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTag(tag: FileTagEntity)
+
+    @Query("DELETE FROM file_tags WHERE fileId = :fileId AND tag = :tag")
+    suspend fun deleteTag(fileId: String, tag: String)
+
+    @Query("DELETE FROM file_tags WHERE fileId = :fileId")
+    suspend fun deleteTagsForFile(fileId: String)
+
     @Query("SELECT * FROM local_files WHERE isSafe = 0 AND isJunk = 0 ORDER BY timestamp DESC")
     fun getNormalFiles(): Flow<List<FileEntity>>
 
@@ -69,7 +88,7 @@ interface FileDao {
     suspend fun deleteSafePin()
 }
 
-@Database(entities = [FileEntity::class, SafePinEntity::class], version = 1, exportSchema = false)
+@Database(entities = [FileEntity::class, SafePinEntity::class, FileTagEntity::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun fileDao(): FileDao
 
