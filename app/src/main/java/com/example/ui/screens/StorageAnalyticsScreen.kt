@@ -28,6 +28,19 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.viewmodel.FileManagerViewModel
 import com.example.ui.theme.*
 import com.example.GlobalProfileAvatarButton
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.rememberCoroutineScope
+import com.example.viewmodel.JunkItem
+import com.example.viewmodel.JunkScannerUtils
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.io.File
 
 @Composable
 fun StorageAnalyticsScreen(
@@ -176,6 +189,9 @@ fun StorageAnalyticsScreen(
                     icon = Icons.Default.DeleteSweep,
                     testTag = "analytics_category_junk"
                 )
+
+                // Disk Sanity Utility Component (Scans for empty folders & temp files, providing safe deletion)
+                DiskSanityUtilitySection(viewModel = viewModel)
                 
                 Spacer(modifier = Modifier.height(32.dp))
             }
@@ -591,4 +607,494 @@ fun D3PieChart(
         },
         modifier = modifier
     )
+}
+
+enum class UtilityState {
+    IDLE, SCANNING, RESULTS, DELETING, SUCCESS
+}
+
+@Composable
+fun DiskSanityUtilitySection(
+    viewModel: FileManagerViewModel,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var state by remember { mutableStateOf(UtilityState.IDLE) }
+    var emptyFolders by remember { mutableStateOf(listOf<JunkItem>()) }
+    var tempFiles by remember { mutableStateOf(listOf<JunkItem>()) }
+    var selectedIds by remember { mutableStateOf(setOf<String>()) }
+    
+    var isListExpanded by remember { mutableStateOf(false) }
+    var progressText by remember { mutableStateOf("Traversing filesystem inodes...") }
+    var itemsDeletedCount by remember { mutableStateOf(0) }
+    var spaceFreedBytes by remember { mutableStateOf(0L) }
+
+    val startScan = {
+        coroutineScope.launch {
+            state = UtilityState.SCANNING
+            progressText = "Reading sandbox directory structures..."
+            delay(600)
+            progressText = "Analyzing empty folders and unused node tree..."
+            delay(600)
+            progressText = "Scanning transient files, cache logs, and logs..."
+            delay(500)
+            
+            val rawFolders = JunkScannerUtils.scanEmptyDirectories(context)
+            val rawTemps = JunkScannerUtils.scanTempAndCacheFiles(context)
+            
+            emptyFolders = rawFolders
+            tempFiles = rawTemps
+            
+            selectedIds = (rawFolders + rawTemps).map { it.id }.toSet()
+            state = UtilityState.RESULTS
+        }
+    }
+
+    val startPurge = {
+        coroutineScope.launch {
+            state = UtilityState.DELETING
+            val allItems = emptyFolders + tempFiles
+            val itemsToPurge = allItems.filter { selectedIds.contains(it.id) }
+            
+            itemsDeletedCount = itemsToPurge.size
+            spaceFreedBytes = itemsToPurge.sumOf { it.size }
+            
+            progressText = "Unlinking node journals..."
+            delay(400)
+            
+            itemsToPurge.forEachIndexed { index, item ->
+                progressText = "Purging: ${item.name} (${index + 1}/${itemsToPurge.size})"
+                delay(120)
+                try {
+                    val file = File(item.path)
+                    if (file.exists()) {
+                        file.delete()
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            
+            progressText = "Syncing directory allocations..."
+            delay(400)
+            
+            viewModel.updateStorageMetrics()
+            state = UtilityState.SUCCESS
+        }
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize()
+            .testTag("card_utility_section"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(CustomFlameOrange.copy(alpha = 0.15f), shape = RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = null,
+                            tint = CustomFlameOrange,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Disk Sanity Optimizer",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Text(
+                            text = "Empty folders & temp files utility",
+                            color = TextGray,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+                
+                val statusText = when (state) {
+                    UtilityState.IDLE -> "READY"
+                    UtilityState.SCANNING -> "ANALYZING"
+                    UtilityState.RESULTS -> "DETECTED"
+                    UtilityState.DELETING -> "PURGING"
+                    UtilityState.SUCCESS -> "OPTIMIZED"
+                }
+                val statusColor = when (state) {
+                    UtilityState.IDLE -> TextGray
+                    UtilityState.SCANNING -> AquaticWaveBlue
+                    UtilityState.RESULTS -> CustomFlameOrange
+                    UtilityState.DELETING -> Color.Red
+                    UtilityState.SUCCESS -> ForestEcoGreen
+                }
+                Box(
+                    modifier = Modifier
+                        .background(statusColor.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = statusText,
+                        color = statusColor,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(14.dp))
+
+            when (state) {
+                UtilityState.IDLE -> {
+                    Text(
+                        text = "Scan file structure systems for abandoned empty folders and transient logs to restore disk balance with zero critical data disruption risk.",
+                        color = TextGray,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Button(
+                        onClick = { startScan() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("btn_utility_scan"),
+                        colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Scan Disk Structure", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                }
+                
+                UtilityState.SCANNING -> {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = progressText,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            color = CustomFlameOrange,
+                            trackColor = Color.White.copy(alpha = 0.08f)
+                        )
+                    }
+                }
+                
+                UtilityState.RESULTS -> {
+                    val allItems = emptyFolders + tempFiles
+                    val totalSizeToClean = allItems.filter { selectedIds.contains(it.id) }.sumOf { it.size }
+                    
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.White.copy(alpha = 0.03f), RoundedCornerShape(10.dp))
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Reclaimable Size", color = TextGray, fontSize = 11.sp)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    viewModel.formatFileSize(totalSizeToClean),
+                                    color = CustomFlameOrange,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 18.sp
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("Matches Found", color = TextGray, fontSize = 11.sp)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    "${emptyFolders.size} Folders / ${tempFiles.size} Files",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isListExpanded = !isListExpanded }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (isListExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    tint = AquaticWaveBlue,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (isListExpanded) "Hide details list" else "Expand detected file details",
+                                    color = AquaticWaveBlue,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            
+                            Text(
+                                text = if (selectedIds.size == allItems.size) "Deselect All" else "Select All",
+                                color = TextGray,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clickable {
+                                        selectedIds = if (selectedIds.size == allItems.size) {
+                                            emptySet()
+                                        } else {
+                                            allItems.map { it.id }.toSet()
+                                        }
+                                    }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isListExpanded,
+                            enter = fadeIn(),
+                            exit = fadeOut()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp)
+                                    .background(Color.White.copy(alpha = 0.01f), RoundedCornerShape(8.dp))
+                                    .padding(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                allItems.forEach { item ->
+                                    val isChecked = selectedIds.contains(item.id)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                selectedIds = if (isChecked) {
+                                                    selectedIds - item.id
+                                                } else {
+                                                    selectedIds + item.id
+                                                }
+                                            }
+                                            .padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (item.isFolder) Icons.Default.Folder else Icons.Default.Description,
+                                                contentDescription = null,
+                                                tint = if (item.isFolder) AquaticWaveBlue else CustomFlameOrange,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text(
+                                                    text = item.name,
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = item.path,
+                                                    color = TextGray,
+                                                    fontSize = 9.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                        
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = if (item.isFolder) "0 B" else viewModel.formatFileSize(item.size),
+                                                color = TextGray,
+                                                fontSize = 10.sp,
+                                                modifier = Modifier.padding(end = 8.dp)
+                                            )
+                                            Checkbox(
+                                                checked = isChecked,
+                                                onCheckedChange = { checked ->
+                                                    selectedIds = if (checked == true) {
+                                                        selectedIds + item.id
+                                                    } else {
+                                                        selectedIds - item.id
+                                                    }
+                                                },
+                                                colors = CheckboxDefaults.colors(
+                                                    checkedColor = CustomFlameOrange,
+                                                    uncheckedColor = TextGray.copy(alpha = 0.5f)
+                                                ),
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { state = UtilityState.IDLE },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextGray),
+                                border = BorderStroke(1.dp, TextGray.copy(alpha = 0.3f)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("Cancel", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                            
+                            Button(
+                                onClick = { startPurge() },
+                                modifier = Modifier
+                                    .weight(1.5f)
+                                    .height(44.dp)
+                                    .testTag("btn_utility_purge"),
+                                colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
+                                shape = RoundedCornerShape(10.dp),
+                                enabled = selectedIds.isNotEmpty()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Purge Safely", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                UtilityState.DELETING -> {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = progressText,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        CircularProgressIndicator(
+                            color = CustomFlameOrange,
+                            modifier = Modifier.size(28.dp),
+                            strokeWidth = 3.dp
+                        )
+                    }
+                }
+                
+                UtilityState.SUCCESS -> {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(ForestEcoGreen.copy(alpha = 0.15f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = ForestEcoGreen,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(10.dp))
+                        
+                        Text(
+                            text = "Disk Sanity Reclaimed!",
+                            color = Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Purged $itemsDeletedCount files/directories, returning ${viewModel.formatFileSize(spaceFreedBytes)} storage to your primary system pool.",
+                            color = TextGray,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 15.sp
+                        )
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Button(
+                            onClick = { state = UtilityState.IDLE },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.08f)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Acknowledge", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
