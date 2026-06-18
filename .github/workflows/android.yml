@@ -21,28 +21,26 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Grant Execute Permission to Gradlew
+      - name: Generate Gradle Wrapper
+        run: |
+          mkdir -p gradle/wrapper
+          gradle wrapper --gradle-version 8.8
+
+      - name: Grant Execute Permission
         run: chmod +x gradlew
 
       - name: Decode Debug Keystore
         run: |
           if [ -f debug.keystore.base64 ]; then
-            echo "Decoding debug.keystore.base64..."
             base64 -d debug.keystore.base64 > debug.keystore
-          else
-            echo "debug.keystore.base64 not found, falling back to default debug signing."
           fi
 
-      - name: Clean Build
-        run: ./gradlew clean
+      - name: Build APK
+        run: ./gradlew assembleDebug --no-daemon
 
-      - name: Run Build (Compile Debug APK)
-        run: ./gradlew assembleDebug --no-daemon --max-workers=1 --no-build-cache
-
-      - name: Upload Debug APK Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: SmartFileCloudManager-Debug-APK
+          name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: warn
