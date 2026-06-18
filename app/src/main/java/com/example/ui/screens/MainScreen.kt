@@ -129,18 +129,6 @@ fun MainScreen(
                     onOpenSafe = { inSafeViewMode = true }
                 )
 
-                // Real-time Search Box
-                SearchAndAddBar(
-                    query = searchQuery,
-                    onQueryChange = { viewModel.searchQuery.value = it },
-                    isAiSearchMode = isAiSearchMode,
-                    isAiSearching = isAiSearching,
-                    aiSearchError = aiSearchError,
-                    onAiSearchClick = { viewModel.performGeminiNaturalLanguageSearch(searchQuery) },
-                    onClearAiSearch = { viewModel.clearAiSearch() },
-                    onAddClick = { showAddFileDialog = true }
-                )
-
                 // Multiple choice toggle notification
                 if (isMultiSelect) {
                     MultiSelectActionBar(
@@ -230,7 +218,12 @@ fun BrandingHeader(
     viewModel: FileManagerViewModel,
     onMenuClick: () -> Unit = {}
 ) {
-    Box(
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val isAiSearchMode by viewModel.isAiSearchMode.collectAsStateWithLifecycle()
+    val isAiSearching by viewModel.isAiSearching.collectAsStateWithLifecycle()
+    val aiSearchError by viewModel.aiSearchError.collectAsStateWithLifecycle()
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(
@@ -334,6 +327,82 @@ fun BrandingHeader(
                 GlobalProfileAvatarButton(viewModel = viewModel)
             }
         }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Persistent Head Search Bar
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = {
+                viewModel.searchQuery.value = it
+                if (isAiSearchMode && it.isBlank()) {
+                    viewModel.clearAiSearch()
+                }
+            },
+            placeholder = { 
+                Text(
+                    text = if (isAiSearchMode) "Describe file to Gemini..." 
+                    else "Search files or Extensions (.pdf, .png)...",
+                    fontSize = 13.sp,
+                    color = Color.White.copy(alpha = 0.5f)
+                ) 
+            },
+            leadingIcon = { 
+                Icon(
+                    imageVector = if (isAiSearchMode) Icons.Default.AutoAwesome else Icons.Default.Search, 
+                    contentDescription = "Search Icon", 
+                    tint = if (isAiSearchMode) CustomFlameOrange else AquaticWaveBlue,
+                    modifier = Modifier.size(18.dp)
+                ) 
+            },
+            trailingIcon = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { 
+                            viewModel.searchQuery.value = "" 
+                            if (isAiSearchMode) {
+                                viewModel.clearAiSearch()
+                            }
+                        }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear Input", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    
+                    // Trigger Gemini AI search directly from search bar
+                    IconButton(
+                        onClick = {
+                            if (isAiSearchMode) {
+                                viewModel.clearAiSearch()
+                            } else {
+                                viewModel.performGeminiNaturalLanguageSearch(searchQuery)
+                            }
+                        },
+                        modifier = Modifier.testTag("header_ai_search_toggle_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "AI Search Trigger",
+                            tint = if (isAiSearchMode) { CustomFlameOrange } else { Color.White.copy(alpha = 0.4f) },
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp)
+                .testTag("search_field_input"),
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = if (isAiSearchMode) CustomFlameOrange else AquaticWaveBlue,
+                unfocusedBorderColor = if (isAiSearchMode) CustomFlameOrange.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.15f),
+                focusedContainerColor = DeepSurfaceDark,
+                unfocusedContainerColor = DeepSurfaceDark,
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            ),
+            singleLine = true
+        )
     }
 }
 

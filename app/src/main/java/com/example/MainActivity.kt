@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -38,6 +39,7 @@ import com.example.ui.screens.MainScreen
 import com.example.ui.screens.AIChatDrawer
 import com.example.ui.screens.JunkCleanerScreen
 import com.example.ui.screens.StorageAnalyticsScreen
+import com.example.ui.screens.SplashScreen
 import com.example.ui.screens.AccountSwitcherBottomSheet
 import com.example.ui.screens.OAuthLoginDialog
 import com.example.ui.theme.*
@@ -91,6 +93,7 @@ fun MainAppContainer() {
         viewModel.scanRealFilesystem()
     }
 
+    var showSplashScreen by remember { mutableStateOf(true) }
     var selectedIndex by remember { mutableStateOf(0) }
     val isChatDrawerOpen by viewModel.isChatDrawerOpen.collectAsStateWithLifecycle()
     
@@ -146,8 +149,9 @@ fun MainAppContainer() {
         )
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isWide = maxWidth >= 600.dp
+    Box(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val isWide = maxWidth >= 600.dp
 
         ModalNavigationDrawer(
             drawerState = drawerState,
@@ -506,7 +510,16 @@ fun MainAppContainer() {
                 )
             }
         }
+        
+        AnimatedVisibility(
+            visible = showSplashScreen,
+            enter = fadeIn(),
+            exit = fadeOut(animationSpec = tween(durationMillis = 800))
+        ) {
+            SplashScreen(onSplashFinished = { showSplashScreen = false })
+        }
     }
+}
 }
 }
 
@@ -639,6 +652,94 @@ fun ScrollViewDrawerItemsList(
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.testTag("drawer_item_ai_assistant")
         )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Section 4: ABOUT SYSTEM
+        Text(
+            text = "ABOUT PLATFORM",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = AquaticWaveBlue,
+            modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 6.dp)
+        )
+
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.03f)),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 4.dp)
+                .testTag("drawer_about_section_card")
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Vishwa Storage",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(CustomFlameOrange.copy(alpha = 0.15f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "v1.4.2-beta",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CustomFlameOrange
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                // Developer Contacts
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "Developer Contact",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextGray
+                    )
+                    Text(
+                        text = "epostvvf@gmail.com",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White
+                    )
+                }
+
+                HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+
+                // Security disclaimer
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "Security Disclaimer (Testers)",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CustomFlameOrange
+                    )
+                    Text(
+                        text = "This application is currently in sandbox testing stage. Your scanned filesystem database logs are processed entirely on-device. No credential tokens or personal storage files are transferred without encryption or prior explicit configuration. Do not upload production sensitive documents or API keys.",
+                        fontSize = 9.sp,
+                        color = TextGray,
+                        lineHeight = 13.sp
+                    )
+                }
+            }
+        }
     }
 }
 

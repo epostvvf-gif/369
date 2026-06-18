@@ -345,10 +345,25 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 folder.mkdirs()
             }
             val file = File(folder, t.fileName)
+            val contentRepresentation = when (t.fileName) {
+                "Vishwa_Foundation_Proposal.docx", "Vishwa_Foundation_Proposal - Copy.docx" -> {
+                    "Vishwa Foundation Proposal core report content block for strategic alignment 2026."
+                }
+                "vishwa_yearly_audit.txt", "vishwa_yearly_audit_v2_dup.txt" -> {
+                    "Vishwa Yearly Audit statistical ledger analysis text records and balance sheet indexes."
+                }
+                "sunset_sea_snapshot.jpeg", "sunset_sea_snapshot_backup.jpeg" -> {
+                    "Raw photo snapshot representing gorgeous golden sunset reflecting on still sea water."
+                }
+                else -> {
+                    "Standard physical storage mock content blocks for ${t.fileName}."
+                }
+            }
+
             try {
                 if (!file.exists()) {
                     file.createNewFile()
-                    file.writeText("This is real, physical file storage data for ${t.fileName}.")
+                    file.writeText(contentRepresentation)
                 }
             } catch (e: Exception) {
                 // Fallback to accessible App External sandbox folder (handles scoping seamlessly)
@@ -358,7 +373,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                     if (!appFile.exists()) {
                         try {
                             appFile.createNewFile()
-                            appFile.writeText("Accessible App External physical file data for ${t.fileName}.")
+                            appFile.writeText(contentRepresentation)
                         } catch (ex: Exception) {
                             ex.printStackTrace()
                         }
@@ -1161,12 +1176,41 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun deleteDuplicateFile(file: FileEntity) {
         viewModelScope.launch {
+            try {
+                val actualPath = if (file.path.startsWith("/sdcard")) {
+                    file.path.substring(7)
+                } else {
+                    file.path
+                }
+                val f = java.io.File(actualPath)
+                if (f.exists()) {
+                    f.delete()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             repository.deleteFiles(listOf(file))
+            updateStorageMetrics()
         }
     }
 
     fun deleteDuplicateFiles(files: List<FileEntity>) {
         viewModelScope.launch {
+            for (fileEntity in files) {
+                try {
+                    val actualPath = if (fileEntity.path.startsWith("/sdcard")) {
+                        fileEntity.path.substring(7)
+                    } else {
+                        fileEntity.path
+                    }
+                    val f = java.io.File(actualPath)
+                    if (f.exists()) {
+                        f.delete()
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
             repository.deleteFiles(files)
             // Filter them out of current active hash groups so the UI resets instantly
             val currentGroups = duplicateHashGroups.value
@@ -1174,6 +1218,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 groupFiles.filter { f -> files.none { it.id == f.id } }
             }.filter { it.value.size > 1 }
             duplicateHashGroups.value = nextGroups
+            updateStorageMetrics()
         }
     }
 
