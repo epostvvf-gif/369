@@ -1128,6 +1128,76 @@ fun FileListSection(
                     selectedLeadingIconColor = Color.White
                 )
             )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            var expanded by remember { mutableStateOf(false) }
+            val sortOption by viewModel.fileSortOption.collectAsStateWithLifecycle()
+
+            Box(modifier = Modifier.align(Alignment.CenterVertically)) {
+                AssistChip(
+                    onClick = { expanded = true },
+                    label = { 
+                        Text(
+                            text = when (sortOption) {
+                                "Name" -> "Name"
+                                "Size" -> "Size"
+                                else -> "Date"
+                            }, 
+                            fontSize = 11.sp, 
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        ) 
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Sort,
+                            contentDescription = "Sort Files",
+                            modifier = Modifier.size(16.dp),
+                            tint = CustomFlameOrange
+                        )
+                    },
+                    colors = AssistChipDefaults.assistChipColors(
+                        labelColor = Color.White,
+                        leadingIconContentColor = CustomFlameOrange
+                    ),
+                    modifier = Modifier.testTag("btn_file_sort_dropdown_trigger")
+                )
+
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier.background(DeepSurfaceDark).testTag("dropdown_file_sort")
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Sort by Name", color = Color.White, fontSize = 12.sp) },
+                        leadingIcon = { Icon(Icons.Default.SortByAlpha, contentDescription = null, tint = CustomFlameOrange, modifier = Modifier.size(16.dp)) },
+                        onClick = {
+                            viewModel.fileSortOption.value = "Name"
+                            expanded = false
+                        },
+                        modifier = Modifier.testTag("sort_option_name")
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Sort by Date Modified", color = Color.White, fontSize = 12.sp) },
+                        leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null, tint = AquaticWaveBlue, modifier = Modifier.size(16.dp)) },
+                        onClick = {
+                            viewModel.fileSortOption.value = "Date"
+                            expanded = false
+                        },
+                        modifier = Modifier.testTag("sort_option_date")
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Sort by Size", color = Color.White, fontSize = 12.sp) },
+                        leadingIcon = { Icon(Icons.Default.SwapVert, contentDescription = null, tint = ForestEcoGreen, modifier = Modifier.size(16.dp)) },
+                        onClick = {
+                            viewModel.fileSortOption.value = "Size"
+                            expanded = false
+                        },
+                        modifier = Modifier.testTag("sort_option_size")
+                    )
+                }
+            }
         }
 
         // Selected breadcrumb trail when drilled down

@@ -141,6 +141,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     val selectedLocalFileIds = MutableStateFlow<Set<Int>>(emptySet())
     val isMultiSelect = MutableStateFlow(false)
     val filePreview = MutableStateFlow<PreviewFile?>(null)
+    val fileSortOption = MutableStateFlow("Date") // "Name", "Date", "Size"
     
     // --- File Explorer Specific States ---
     val fileExplorerMode = MutableStateFlow("Folders") // "Folders" or "Flat"
@@ -563,11 +564,23 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     // --- Search with Custom Match Percentage scoring calculation ---
     // Calculates how heavily the characters in the search query match this file's name.
     // Returns a dynamic matched score list of Pairs
+    data class SearchSortParams(
+        val query: String,
+        val isAi: Boolean,
+        val aiResults: List<FileEntity>?,
+        val sortOption: String
+    )
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun calculateSearchMatchesFlow(): Flow<List<Pair<FileEntity, Double>>> {
-        return combine(searchQuery, isAiSearchMode, aiSearchResults) { query, isAi, aiResults ->
-            Triple(query, isAi, aiResults)
-        }.flatMapLatest { (query, isAi, aiResults) ->
+        return combine(searchQuery, isAiSearchMode, aiSearchResults, fileSortOption) { query, isAi, aiResults, sortOption ->
+            SearchSortParams(query, isAi, aiResults, sortOption)
+        }.flatMapLatest { params ->
+            val query = params.query
+            val isAi = params.isAi
+            val aiResults = params.aiResults
+            val sortOption = params.sortOption
+
             if (isAi && aiResults != null) {
                 flowOf(aiResults.map { it to 100.0 })
             } else {
@@ -582,15 +595,31 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                     } else {
                         files
                     }
+
+                    val sortedScopedFiles = when (sortOption) {
+                        "Name" -> scopedFiles.sortedBy { it.name.lowercase() }
+                        "Size" -> scopedFiles.sortedByDescending { it.size }
+                        else -> scopedFiles.sortedByDescending { it.timestamp } // Date Modified
+                    }
+
                     if (query.isBlank()) {
-                        scopedFiles.map { it to 100.0 }
+                        sortedScopedFiles.map { it to 100.0 }
                     } else {
                         scopedFiles.map { file ->
                             val percentage = getCustomSearchMatchRatio(file.name, query)
                             file to percentage
                         }
                         .filter { it.second > 0.0 }
-                        .sortedByDescending { it.second } // Best match calculation first!
+                        .sortedWith(
+                            compareByDescending<Pair<FileEntity, Double>> { it.second }
+                                .then(
+                                    when (sortOption) {
+                                        "Name" -> compareBy { it.first.name.lowercase() }
+                                        "Size" -> compareByDescending { it.first.size }
+                                        else -> compareByDescending { it.first.timestamp }
+                                    }
+                                )
+                        )
                     }
                 }
             }

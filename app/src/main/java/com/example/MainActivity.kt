@@ -37,6 +37,7 @@ import com.example.ui.screens.DriveScreen
 import com.example.ui.screens.MainScreen
 import com.example.ui.screens.AIChatDrawer
 import com.example.ui.screens.JunkCleanerScreen
+import com.example.ui.screens.StorageAnalyticsScreen
 import com.example.ui.screens.AccountSwitcherBottomSheet
 import com.example.ui.screens.OAuthLoginDialog
 import com.example.ui.theme.*
@@ -145,9 +146,13 @@ fun MainAppContainer() {
         )
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val isWide = maxWidth >= 600.dp
+
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            gesturesEnabled = !isWide,
+            drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = DeepSurfaceDark,
                 drawerContentColor = Color.White,
@@ -302,6 +307,136 @@ fun MainAppContainer() {
         modifier = Modifier.fillMaxSize()
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                if (isWide) {
+                    NavigationRail(
+                        containerColor = DeepSurfaceDark,
+                        header = {
+                            Box(
+                                modifier = Modifier
+                                    .padding(vertical = 16.dp)
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(androidx.compose.ui.graphics.Brush.sweepGradient(listOf(CustomFlameOrange, AquaticWaveBlue, ForestEcoGreen, CustomFlameOrange)))
+                                    .padding(2.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(CircleShape)
+                                        .background(CosmicPrimary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AllInclusive,
+                                        contentDescription = null,
+                                        tint = CustomFlameOrange,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .testTag("app_navigation_rail")
+                    ) {
+                        Spacer(modifier = Modifier.weight(0.1f))
+                        
+                        NavigationRailItem(
+                            selected = selectedIndex == 0,
+                            onClick = { selectedIndex = 0 },
+                            icon = { Icon(Icons.Default.Storage, contentDescription = "Local Files") },
+                            label = { Text("Local Files", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = CustomFlameOrange,
+                                selectedTextColor = Color.White,
+                                indicatorColor = CosmicPrimary,
+                                unselectedIconColor = TextGray,
+                                unselectedTextColor = TextGray
+                            ),
+                            modifier = Modifier.testTag("rail_item_local_files")
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        NavigationRailItem(
+                            selected = selectedIndex == 1,
+                            onClick = { selectedIndex = 1 },
+                            icon = { Icon(Icons.Default.CloudQueue, contentDescription = "Cloud Drive") },
+                            label = { Text("Cloud Drive", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = AquaticWaveBlue,
+                                selectedTextColor = Color.White,
+                                indicatorColor = CosmicPrimary,
+                                unselectedIconColor = TextGray,
+                                unselectedTextColor = TextGray
+                            ),
+                            modifier = Modifier.testTag("rail_item_cloud_files")
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        NavigationRailItem(
+                            selected = selectedIndex == 2,
+                            onClick = { selectedIndex = 2 },
+                            icon = { Icon(Icons.Default.DeleteSweep, contentDescription = "Junk Cleaner") },
+                            label = { Text("Junk Cleaner", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = CustomFlameOrange,
+                                selectedTextColor = Color.White,
+                                indicatorColor = CosmicPrimary,
+                                unselectedIconColor = TextGray,
+                                unselectedTextColor = TextGray
+                            ),
+                            modifier = Modifier.testTag("rail_item_junk_cleaner")
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        NavigationRailItem(
+                            selected = selectedIndex == 3,
+                            onClick = { selectedIndex = 3 },
+                            icon = { Icon(Icons.Default.SmartToy, contentDescription = "AI Assistant") },
+                            label = { Text("AI Assistant", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = CustomFlameOrange,
+                                selectedTextColor = Color.White,
+                                indicatorColor = CosmicPrimary,
+                                unselectedIconColor = TextGray,
+                                unselectedTextColor = TextGray
+                            ),
+                            modifier = Modifier.testTag("rail_item_ai_assistant")
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        NavigationRailItem(
+                            selected = selectedIndex == 4,
+                            onClick = { selectedIndex = 4 },
+                            icon = { Icon(Icons.Default.PieChart, contentDescription = "Analytics") },
+                            label = { Text("Analytics", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = ForestEcoGreen,
+                                selectedTextColor = Color.White,
+                                indicatorColor = CosmicPrimary,
+                                unselectedIconColor = TextGray,
+                                unselectedTextColor = TextGray
+                            ),
+                            modifier = Modifier.testTag("rail_item_storage_analytics")
+                        )
+                        
+                        Spacer(modifier = Modifier.weight(1f))
+                        
+                        GlobalProfileAvatarButton(viewModel = viewModel)
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                ) {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 floatingActionButton = {
@@ -339,7 +474,10 @@ fun MainAppContainer() {
                         1 -> DriveScreen(viewModel = viewModel, onMenuClick = { scope.launch { drawerState.open() } })
                         2 -> JunkCleanerScreen(viewModel = viewModel, onMenuClick = { scope.launch { drawerState.open() } })
                         3 -> AIScreen(viewModel = viewModel, onMenuClick = { scope.launch { drawerState.open() } })
+                        4 -> StorageAnalyticsScreen(viewModel = viewModel, onMenuClick = { scope.launch { drawerState.open() } })
                     }
+                }
+            }
                 }
             }
 
@@ -369,6 +507,7 @@ fun MainAppContainer() {
             }
         }
     }
+}
 }
 
 @Composable
@@ -452,6 +591,25 @@ fun ScrollViewDrawerItemsList(
             ),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.testTag("drawer_item_junk_cleaner")
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        NavigationDrawerItem(
+            label = { Text("Storage Analytics", fontWeight = FontWeight.Bold, fontSize = 14.sp) },
+            selected = selectedIndex == 4,
+            onClick = { onSelect(4) },
+            icon = { Icon(Icons.Default.PieChart, contentDescription = null) },
+            colors = NavigationDrawerItemDefaults.colors(
+                selectedContainerColor = CosmicPrimary,
+                selectedIconColor = ForestEcoGreen,
+                selectedTextColor = Color.White,
+                unselectedContainerColor = Color.Transparent,
+                unselectedIconColor = TextGray,
+                unselectedTextColor = TextGray
+            ),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.testTag("drawer_item_storage_analytics")
         )
 
         Spacer(modifier = Modifier.height(14.dp))
