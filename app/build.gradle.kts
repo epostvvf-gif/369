@@ -67,6 +67,11 @@ secrets {
   defaultPropertiesFileName = ".env.example"
 }
 
+// KSP Configuration for CI/Headless builds
+ksp {
+  arg("ksp.allowSourcesFromOtherPlugins", "true")
+}
+
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
