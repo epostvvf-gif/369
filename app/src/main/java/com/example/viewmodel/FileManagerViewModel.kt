@@ -173,6 +173,10 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
     // --- Duplicate Scanner States ---
     val showDuplicateScanner = MutableStateFlow(false)
+    val isDuplicateScanning = MutableStateFlow(false)
+    val duplicateScanProgress = MutableStateFlow(0f)
+    val hashAlgorithmChoice = MutableStateFlow("SHA-256")
+    val duplicateHashGroups = MutableStateFlow<Map<String, List<FileEntity>>>(emptyMap())
 
     // --- Secure Safe Folder states ---
     val isPinRegistered = MutableStateFlow(false)
@@ -1129,6 +1133,44 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     fun deleteDuplicateFile(file: FileEntity) {
         viewModelScope.launch {
             repository.deleteFiles(listOf(file))
+        }
+    }
+
+    fun deleteDuplicateFiles(files: List<FileEntity>) {
+        viewModelScope.launch {
+            repository.deleteFiles(files)
+            // Filter them out of current active hash groups so the UI resets instantly
+            val currentGroups = duplicateHashGroups.value
+            val nextGroups = currentGroups.mapValues { (_, groupFiles) ->
+                groupFiles.filter { f -> files.none { it.id == f.id } }
+            }.filter { it.value.size > 1 }
+            duplicateHashGroups.value = nextGroups
+        }
+    }
+
+    fun startHashDuplicateScan() {
+        viewModelScope.launch {
+            isDuplicateScanning.value = true
+            duplicateScanProgress.value = 0f
+            duplicateHashGroups.value = emptyMap()
+
+            val list = normalFiles.value
+            val algorithm = hashAlgorithmChoice.value
+            val service = com.example.service.DuplicateScannerService()
+
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                val results = service.scanForDuplicates(
+                    files = list,
+                    hashAlgorithm = algorithm,
+                    onProgress = { progress ->
+                        duplicateScanProgress.value = progress
+                    }
+                )
+                // Short buffer delay for smoother Material transition
+                delay(800)
+                duplicateHashGroups.value = results
+                isDuplicateScanning.value = false
+            }
         }
     }
 

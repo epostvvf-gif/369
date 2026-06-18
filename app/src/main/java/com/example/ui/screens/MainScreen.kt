@@ -1578,138 +1578,367 @@ fun DuplicateScannerDialog(
     viewModel: FileManagerViewModel,
     onDismiss: () -> Unit
 ) {
-    val duplicateGroupings = viewModel.getDuplicateFileGroupings()
+    val isScanning by viewModel.isDuplicateScanning.collectAsStateWithLifecycle()
+    val scanProgress by viewModel.duplicateScanProgress.collectAsStateWithLifecycle()
+    val hashGroups by viewModel.duplicateHashGroups.collectAsStateWithLifecycle()
+    val hashAlgorithm by viewModel.hashAlgorithmChoice.collectAsStateWithLifecycle()
+    val normalFiles by viewModel.normalFiles.collectAsStateWithLifecycle()
 
-    Dialog(onDismissRequest = onDismiss) {
+    // Map tracking checked File ID -> True (checked for deletion)
+    val selectedFiles = remember { mutableStateMapOf<Int, Boolean>() }
+
+    // On dialog enter, run initial scan
+    LaunchedEffect(Unit) {
+        viewModel.startHashDuplicateScan()
+    }
+
+    // Recompute total potential reclaim size of checked duplicates
+    val selectedList = normalFiles.filter { selectedFiles[it.id] == true }
+    val selectedCount = selectedList.size
+    val selectedBytesSize = selectedList.sumOf { it.size }
+
+    Dialog(onDismissRequest = { if (!isScanning) onDismiss() }) {
         Card(
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.06f)),
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.85f)
-                .padding(vertical = 16.dp)
+                .fillMaxHeight(0.90f)
+                .padding(vertical = 12.dp)
                 .testTag("duplicate_scanner_modal")
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                // Header (Title, Close trigger)
                 Row(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.CopyAll,
-                            contentDescription = null,
-                            tint = AquaticWaveBlue,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Duplicate Scanner",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(AquaticWaveBlue.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CopyAll,
+                                contentDescription = null,
+                                tint = AquaticWaveBlue,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Cryptographic Scanner",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "SHA-256 / MD5 signature replication locator",
+                                fontSize = 10.sp,
+                                color = TextGray
+                            )
+                        }
                     }
 
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    IconButton(
+                        onClick = onDismiss,
+                        enabled = !isScanning,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White.copy(alpha = 0.7f))
                     }
                 }
 
+                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Text(
-                    text = "The duplicate scanning engine located matches based on identical file sizes. Remove secondary copies to clean storage space.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextGray
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                // Algorithm Selection and Trigger Action Row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.03f))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
-                    if (duplicateGroupings.isEmpty()) {
-                        item {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 40.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ForestEcoGreen, modifier = Modifier.size(48.dp))
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text("No duplicate files found! Excellent efficiency.", style = MaterialTheme.typography.bodyMedium, color = TextGray)
+                    Column {
+                        Text(
+                            text = "Hashing Protocol",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextGray
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(top = 2.dp)
+                        ) {
+                            listOf("SHA-256", "MD5").forEach { algo ->
+                                val isSelected = hashAlgorithm == algo
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(
+                                            if (isSelected) AquaticWaveBlue.copy(alpha = 0.15f)
+                                            else Color.Transparent
+                                        )
+                                        .clickable(enabled = !isScanning) {
+                                            viewModel.hashAlgorithmChoice.value = algo
+                                            viewModel.startHashDuplicateScan()
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = algo,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) Color.White else TextGray
+                                    )
+                                }
                             }
                         }
                     }
 
-                    duplicateGroupings.forEach { (size, files) ->
-                        item {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)),
-                                shape = RoundedCornerShape(12.dp)
+                    Button(
+                        onClick = { viewModel.startHashDuplicateScan() },
+                        enabled = !isScanning,
+                        colors = ButtonDefaults.buttonColors(containerColor = AquaticWaveBlue),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.Black, modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Rescan", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // main Body Content: scanning loader or duplicate groupings
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isScanning) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.size(80.dp)
                             ) {
-                                Column(modifier = Modifier.padding(10.dp)) {
-                                    Row(
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        modifier = Modifier.fillMaxWidth()
+                                CircularProgressIndicator(
+                                    progress = { scanProgress },
+                                    modifier = Modifier.fillMaxSize(),
+                                    strokeWidth = 5.dp,
+                                    color = AquaticWaveBlue,
+                                    trackColor = Color.White.copy(alpha = 0.08f)
+                                )
+                                Text(
+                                    text = "${(scanProgress * 100).toInt()}%",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(20.dp))
+                            Text(
+                                text = "Crunching cryptographic database hashes...",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Validating binary signatures against local file index storage profiles",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextGray,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    } else {
+                        // Scan complete results list
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            if (hashGroups.isEmpty()) {
+                                item {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 60.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(54.dp)
+                                                .clip(CircleShape)
+                                                .background(ForestEcoGreen.copy(alpha = 0.12f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = ForestEcoGreen,
+                                                modifier = Modifier.size(32.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(12.dp))
                                         Text(
-                                            text = "Match Group (${viewModel.formatFileSize(size)})",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = CustomFlameOrange
+                                            text = "Perfect Storage Optimization!",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold
                                         )
+                                        Spacer(modifier = Modifier.height(4.dp))
                                         Text(
-                                            text = "${files.size} duplicates",
-                                            fontSize = 10.sp,
-                                            color = TextGray
+                                            text = "No duplicate binary matches found using the selected $hashAlgorithm filter.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = TextGray,
+                                            textAlign = TextAlign.Center
                                         )
                                     }
-
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        files.forEach { file ->
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .background(
-                                                        Color.Black.copy(alpha = 0.2f),
-                                                        RoundedCornerShape(6.dp)
-                                                    )
-                                                    .clickable { viewModel.showLocalFilePreview(file) }
-                                                    .padding(6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.InsertDriveFile,
-                                                    contentDescription = null,
-                                                    tint = AquaticWaveBlue,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = file.name,
-                                                    fontSize = 11.sp,
-                                                    color = Color.White,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.weight(1f)
-                                                )
-                                                IconButton(
-                                                    onClick = { viewModel.deleteDuplicateFile(file) },
-                                                    modifier = Modifier.size(24.dp).testTag("delete_duplicate_btn_${file.id}")
+                                }
+                            } else {
+                                hashGroups.forEach { (hash, files) ->
+                                    item {
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.03f)),
+                                            shape = RoundedCornerShape(14.dp),
+                                            border = androidx.compose.foundation.BorderStroke(2.dp, Color.White.copy(alpha = 0.04f))
+                                        ) {
+                                            Column(modifier = Modifier.padding(12.dp)) {
+                                                // Group Header: Hash value + quick select controls
+                                                Row(
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.fillMaxWidth()
                                                 ) {
-                                                    Icon(
-                                                        Icons.Default.Delete,
-                                                        contentDescription = "Delete secondary copy",
-                                                        tint = MaterialTheme.colorScheme.error,
-                                                        modifier = Modifier.size(14.dp)
-                                                    )
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            text = "Match Group: ${viewModel.formatFileSize(files.first().size)}",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Black,
+                                                            color = CustomFlameOrange
+                                                        )
+                                                        Text(
+                                                            text = "Signature: $hash",
+                                                            fontSize = 9.sp,
+                                                            color = TextGray,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+
+                                                    // Multi-select bulk assists
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                        TextButton(
+                                                            onClick = {
+                                                                // Keeps the first file, auto check the rest
+                                                                files.forEachIndexed { idx, file ->
+                                                                    selectedFiles[file.id] = idx > 0
+                                                                }
+                                                            },
+                                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                                            modifier = Modifier.height(24.dp)
+                                                        ) {
+                                                            Text("Prune Extras", fontSize = 9.sp, color = AquaticWaveBlue, fontWeight = FontWeight.Bold)
+                                                        }
+                                                        TextButton(
+                                                            onClick = {
+                                                                files.forEach { file -> selectedFiles[file.id] = false }
+                                                            },
+                                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                                            modifier = Modifier.height(24.dp)
+                                                        ) {
+                                                            Text("Deselect", fontSize = 9.sp, color = TextGray)
+                                                        }
+                                                    }
+                                                }
+
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                                Spacer(modifier = Modifier.height(6.dp))
+
+                                                // List files in this match group
+                                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    files.forEach { file ->
+                                                        val isChecked = selectedFiles[file.id] == true
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .clip(RoundedCornerShape(8.dp))
+                                                                .background(
+                                                                    if (isChecked) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.08f)
+                                                                    else Color.Black.copy(alpha = 0.20f)
+                                                                )
+                                                                .clickable { viewModel.showLocalFilePreview(file) }
+                                                                .padding(vertical = 4.dp, horizontal = 8.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Checkbox(
+                                                                checked = isChecked,
+                                                                onCheckedChange = { isCheckedNext ->
+                                                                    selectedFiles[file.id] = isCheckedNext == true
+                                                                },
+                                                                colors = CheckboxDefaults.colors(
+                                                                    checkedColor = MaterialTheme.colorScheme.error,
+                                                                    uncheckedColor = Color.White.copy(alpha = 0.3f),
+                                                                    checkmarkColor = Color.White
+                                                                ),
+                                                                modifier = Modifier.size(36.dp)
+                                                            )
+
+                                                            Spacer(modifier = Modifier.width(4.dp))
+
+                                                            Column(modifier = Modifier.weight(1f)) {
+                                                                Text(
+                                                                    text = file.name,
+                                                                    fontSize = 11.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = Color.White,
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis
+                                                                )
+                                                                Text(
+                                                                    text = "Location: ${file.path}",
+                                                                    fontSize = 9.sp,
+                                                                    color = TextGray,
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis
+                                                                )
+                                                            }
+
+                                                            // File category icon representation
+                                                            Icon(
+                                                                imageVector = when (file.category) {
+                                                                    "Images" -> Icons.Default.Image
+                                                                    "Audio" -> Icons.Default.Audiotrack
+                                                                    "Videos" -> Icons.Default.Movie
+                                                                    else -> Icons.Default.Description
+                                                                },
+                                                                contentDescription = null,
+                                                                tint = AquaticWaveBlue.copy(alpha = 0.5f),
+                                                                modifier = Modifier
+                                                                    .size(16.dp)
+                                                                    .padding(horizontal = 4.dp)
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -1720,14 +1949,58 @@ fun DuplicateScannerDialog(
                     }
                 }
 
-                Button(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.buttonColors(containerColor = CosmicPrimary),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp)
+                // Dialog Action Footer controls
+                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Close Scanner", fontWeight = FontWeight.Bold, color = Color.White)
+                    // Active deletion trigger button
+                    if (selectedCount > 0) {
+                        Button(
+                            onClick = {
+                                viewModel.deleteDuplicateFiles(selectedList)
+                                selectedFiles.clear()
+                            },
+                            enabled = !isScanning,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1.5f)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(Icons.Default.DeleteForever, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Delete $selectedCount Selected (${viewModel.formatFileSize(selectedBytesSize)})",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        enabled = !isScanning,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = if (selectedCount > 0) "Dismiss" else "Close Scanner",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
                 }
             }
         }
