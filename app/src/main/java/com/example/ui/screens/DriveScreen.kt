@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -466,7 +467,16 @@ fun CloudLoginSimScreen(
     }
 }
 
-// --- Live Google Drive REST client connection Card ---
+// --- Live Google Drive REST client connection Card & Sync Simulator ---
+data class SyncableFile(
+    val id: String,
+    val name: String,
+    val size: String,
+    val sizeBytes: Long,
+    val progress: Float = 0f,
+    val status: String = "Queued" // "Queued", "Syncing", "Synced", "Failed"
+)
+
 @Composable
 fun LiveGoogleDriveConnectionCard(
     viewModel: FileManagerViewModel
@@ -476,26 +486,193 @@ fun LiveGoogleDriveConnectionCard(
     val connectionError by viewModel.googleDriveConnectionError.collectAsStateWithLifecycle()
 
     var tokenInput by remember { mutableStateOf(accessToken) }
-    var isEditing by remember { mutableStateOf(accessToken.isBlank()) }
+    var isEditing by remember { mutableStateOf(false) }
+
+    // Simulator Interactive States
+    var isSyncing by remember { mutableStateOf(false) }
+    var globalProgress by remember { mutableStateOf(0f) }
+    var currentSpeedText by remember { mutableStateOf("0 KB/s") }
+    var totalBytesTransferred by remember { mutableStateOf(0L) }
+    var networkPreset by remember { mutableStateOf("Wi-Fi") } // "LTE", "Wi-Fi", "Fiber", "Offline"
+    var showNetworkErrorSim by remember { mutableStateOf(false) }
+    var syncErrorOccurred by remember { mutableStateOf(false) }
+    var syncErrorMessage by remember { mutableStateOf("") }
+
+    val syncQueue = remember {
+        mutableStateListOf(
+            SyncableFile("s1", "vishwa_brochure_m3.pdf", "5.2 MB", 5452595L),
+            SyncableFile("s2", "donor_list_2026.xlsx", "1.3 MB", 1363148L),
+            SyncableFile("s3", "trustee_resolutions_signed.pdf", "0.8 MB", 838860L),
+            SyncableFile("s4", "foundation_chants_chords.wav", "15.4 MB", 16148070L)
+        )
+    }
 
     LaunchedEffect(accessToken) {
         if (tokenInput != accessToken) {
             tokenInput = accessToken
         }
-        if (accessToken.isNotBlank() && isEditing) {
-            isEditing = false
+    }
+
+    // Interactive Sync Simulation Thread loop
+    LaunchedEffect(isSyncing, networkPreset, showNetworkErrorSim) {
+        if (!isSyncing) return@LaunchedEffect
+
+        while (isSyncing) {
+            // Find next un-synced file or failed file
+            val activeIndex = syncQueue.indexOfFirst { it.status == "Queued" || it.status == "Syncing" || it.status == "Failed" }
+            if (activeIndex == -1) {
+                // Done with all syncing!
+                isSyncing = false
+                currentSpeedText = "0 KB/s"
+                break
+            }
+
+            val activeFile = syncQueue[activeIndex]
+            if (activeFile.status != "Syncing") {
+                syncQueue[activeIndex] = activeFile.copy(status = "Syncing")
+            }
+
+            // Speed estimation
+            val speedBytesPerSec = when (networkPreset) {
+                "LTE" -> 350_000L // 350 KB/s
+                "Wi-Fi" -> 2_800_000L // 2.8 MB/s
+                "Fiber" -> 16_000_000L // 16.0 MB/s
+                else -> 0L // Offline
+            }
+
+            if (networkPreset == "Offline") {
+                currentSpeedText = "Offline (Suspended)"
+                syncQueue[activeIndex] = activeFile.copy(status = "Queued")
+                kotlinx.coroutines.delay(600)
+                continue
+            }
+
+            currentSpeedText = when (networkPreset) {
+                "LTE" -> "350 KB/s (LTE/Cellular)"
+                "Wi-Fi" -> "2.8 MB/s (Standard Wi-Fi)"
+                "Fiber" -> "16.0 MB/s (High Speed Fiber)"
+                else -> "Offline (Suspended)"
+            }
+
+            // Calculate the delta progress step per 150ms tick
+            // ratio = bytes_transferred_in_tick / total_file_bytes
+            val incrementRatio = (speedBytesPerSec / 6.6f) / activeFile.sizeBytes.toFloat()
+            val nextProgress = (activeFile.progress + incrementRatio).coerceAtMost(1.0f)
+
+            // Dynamic Failure Injection check (halves midway at 50% global progress)
+            if (showNetworkErrorSim && globalProgress >= 0.45f) {
+                syncErrorOccurred = true
+                syncErrorMessage = "Google Drive tunnel handshake timeout. SSL proxy connection lost."
+                syncQueue[activeIndex] = activeFile.copy(status = "Failed")
+                isSyncing = false
+                currentSpeedText = "0 KB/s"
+                break
+            }
+
+            kotlinx.coroutines.delay(150)
+
+            val statusNext = if (nextProgress >= 1.0f) "Synced" else "Syncing"
+            syncQueue[activeIndex] = activeFile.copy(progress = nextProgress, status = statusNext)
+
+            // Recompute total global metadata progress
+            val totalBytesSum = syncQueue.sumOf { it.sizeBytes }
+            val completedBytesSum = syncQueue.sumOf { (it.progress * it.sizeBytes).toLong() }
+            totalBytesTransferred = completedBytesSum
+            globalProgress = (completedBytesSum.toFloat() / totalBytesSum.toFloat()).coerceIn(0f, 1f)
         }
     }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag("drive_connectivity_box"),
         colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
         shape = RoundedCornerShape(20.dp),
-        elevation = CardDefaults.cardElevation(2.dp)
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // Header: Icon + Title + Connectivity Pill Badge
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isSyncing) ForestEcoGreen.copy(alpha = 0.15f)
+                                else Color.White.copy(alpha = 0.05f)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isSyncing) Icons.Default.CloudSync else Icons.Default.CloudQueue,
+                            contentDescription = null,
+                            tint = if (isSyncing) ForestEcoGreen else AquaticWaveBlue,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Google Drive DriveLink",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = if (accessToken.isNotBlank()) "OAuth Access Token authenticated" else "Sandbox emulation",
+                            fontSize = 10.sp,
+                            color = TextGray
+                        )
+                    }
+                }
+
+                // Dynamic Status Pill
+                val statusBg = when {
+                    syncErrorOccurred -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
+                    isSyncing -> ForestEcoGreen.copy(alpha = 0.15f)
+                    networkPreset == "Offline" -> Color.Gray.copy(alpha = 0.15f)
+                    else -> AquaticWaveBlue.copy(alpha = 0.15f)
+                }
+                val statusText = when {
+                    syncErrorOccurred -> "FAILED"
+                    isSyncing -> "SYNCING"
+                    networkPreset == "Offline" -> "OFFLINE"
+                    else -> "READY"
+                }
+                val statusColor = when {
+                    syncErrorOccurred -> MaterialTheme.colorScheme.error
+                    isSyncing -> ForestEcoGreen
+                    networkPreset == "Offline" -> Color.Gray
+                    else -> AquaticWaveBlue
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(statusBg)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = statusText,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black,
+                        color = statusColor
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Sub-Section 1: Connection Token configuration collapsible block & quick controls
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+            Spacer(modifier = Modifier.height(12.dp))
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -503,64 +680,38 @@ fun LiveGoogleDriveConnectionCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.CloudSync,
+                        imageVector = Icons.Default.VerifiedUser,
                         contentDescription = null,
-                        tint = AquaticWaveBlue,
-                        modifier = Modifier.size(24.dp)
+                        tint = ForestEcoGreen,
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Live Google Drive Connection",
-                        style = MaterialTheme.typography.titleMedium,
+                        text = if (viewModel.selectedCloudAccount.value != null) "${viewModel.selectedCloudAccount.value}" else "Deauthed",
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                 }
 
-                if (isFetching) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = AquaticWaveBlue
-                    )
-                } else {
-                    Row {
-                        IconButton(
-                            onClick = { viewModel.fetchRealGoogleDriveFiles() },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Refresh live files",
-                                tint = AquaticWaveBlue,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        IconButton(
-                            onClick = { isEditing = !isEditing },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isEditing) Icons.Default.Check else Icons.Default.Edit,
-                                contentDescription = "Edit access token",
-                                tint = CustomFlameOrange,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        onClick = { isEditing = !isEditing },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text(
+                            text = if (isEditing) "Hide Credentials" else "Auth Details",
+                            fontSize = 11.sp,
+                            color = AquaticWaveBlue,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
             if (isEditing) {
-                Text(
-                    text = "Provide a real Google Drive OAuth Access Token to fetch public/shared files in real-time without artificial sandbox limitations:",
-                    fontSize = 11.sp,
-                    color = TextGray
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
@@ -578,7 +729,7 @@ fun LiveGoogleDriveConnectionCard(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
                             focusedBorderColor = AquaticWaveBlue,
-                            unfocusedBorderColor = Color.LightGray.copy(alpha = 0.5f)
+                            unfocusedBorderColor = Color.LightGray.copy(alpha = 0.3f)
                         )
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -591,50 +742,403 @@ fun LiveGoogleDriveConnectionCard(
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                     ) {
-                        Text("Connect", fontSize = 12.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text("Save Token", fontSize = 11.sp, color = Color.Black, fontWeight = FontWeight.Bold)
                     }
-                }
-            } else {
-                Text(
-                    text = if (accessToken.isNotBlank()) "Status: Active live API synchronization" else "Status: Sandbox Emulation",
-                    fontSize = 12.sp,
-                    color = if (accessToken.isNotBlank()) ForestEcoGreen else CustomFlameOrange,
-                    fontWeight = FontWeight.Bold
-                )
-
-                if (accessToken.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Using Access Token: ${accessToken.take(15)}..." + " (Click edit icon to renew/change)",
-                        fontSize = 11.sp,
-                        color = TextGray
-                    )
                 }
             }
 
-            connectionError?.let { err ->
-                Spacer(modifier = Modifier.height(10.dp))
+            // Sub-Section 2: Simulator Action Controls (Speed, Error injection, Play/Pause)
+            Spacer(modifier = Modifier.height(14.dp))
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "SIMULATOR CONTROLLER PROFILE",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Black,
+                color = TextGray
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Speed Presets Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(
+                    Triple("LTE", Icons.Default.SignalCellularAlt, "Cellular"),
+                    Triple("Wi-Fi", Icons.Default.Wifi, "Wi-Fi"),
+                    Triple("Fiber", Icons.Default.Bolt, "Fiber"),
+                    Triple("Offline", Icons.Default.CloudOff, "Off")
+                ).forEach { (preset, icon, label) ->
+                    val isSelected = networkPreset == preset
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (isSelected) AquaticWaveBlue.copy(alpha = 0.15f)
+                                else Color.White.copy(alpha = 0.04f)
+                            )
+                            .clickable { networkPreset = preset }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = label,
+                                tint = if (isSelected) AquaticWaveBlue else Color.Gray,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = label,
+                                fontSize = 9.sp,
+                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.Normal,
+                                color = if (isSelected) Color.White else TextGray
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Error injection toggle
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.03f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Column {
+                    Text(
+                        text = "Inject Connection Flaw",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Simulates handshakes failure midway (45% progress)",
+                        fontSize = 9.sp,
+                        color = TextGray
+                    )
+                }
+                Switch(
+                    checked = showNetworkErrorSim,
+                    onCheckedChange = { showNetworkErrorSim = it },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = CustomFlameOrange,
+                        checkedTrackColor = CustomFlameOrange.copy(alpha = 0.3f),
+                        uncheckedThumbColor = Color.Gray,
+                        uncheckedTrackColor = Color.White.copy(alpha = 0.08f)
+                    ),
+                    modifier = Modifier.scale(0.8f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Play / Pause / Reset Simulator Action Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (!isSyncing) {
+                    Button(
+                        onClick = {
+                            if (globalProgress >= 1f || syncErrorOccurred) {
+                                // Full reset of simulation parameters
+                                syncErrorOccurred = false
+                                syncErrorMessage = ""
+                                globalProgress = 0f
+                                totalBytesTransferred = 0L
+                                syncQueue.indices.forEach { i ->
+                                    syncQueue[i] = syncQueue[i].copy(progress = 0f, status = "Queued")
+                                }
+                            }
+                            isSyncing = true
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AquaticWaveBlue),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1.5f)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (globalProgress > 0f) "Resume Synchronization" else "Start Synchronization",
+                                color = Color.Black,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                } else {
+                    Button(
+                        onClick = { isSyncing = false },
+                        colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1.5f)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Pause, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Pause Syncing", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        isSyncing = false
+                        globalProgress = 0f
+                        totalBytesTransferred = 0L
+                        syncErrorOccurred = false
+                        syncErrorMessage = ""
+                        syncQueue.indices.forEach { i ->
+                            syncQueue[i] = syncQueue[i].copy(progress = 0f, status = "Queued")
+                        }
+                    },
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Clear Status", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            // Sync Failure Alerts Banner
+            if (syncErrorOccurred) {
+                Spacer(modifier = Modifier.height(14.dp))
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)),
-                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.12f)),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.Top
                     ) {
                         Icon(
-                            imageVector = Icons.Default.ErrorOutline,
-                            contentDescription = "Error",
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Sync error",
                             tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(18.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Synchronization Blocked",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = syncErrorMessage,
+                                fontSize = 10.sp,
+                                color = TextGray
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Turn off 'Inject Connection Flaw' and click Resume to clear SSL blockage.",
+                                fontSize = 9.sp,
+                                color = CustomFlameOrange,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.clickable {
+                                    showNetworkErrorSim = false
+                                    syncErrorOccurred = false
+                                    isSyncing = true
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Sub-Section 3: Progress Visualizer Panel (Circular and Linear Metrics)
+            if (globalProgress > 0f || isSyncing) {
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Circular Progress Dial
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(72.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            progress = { globalProgress },
+                            color = if (syncErrorOccurred) MaterialTheme.colorScheme.error else ForestEcoGreen,
+                            trackColor = Color.White.copy(alpha = 0.08f),
+                            strokeWidth = 5.dp,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "${(globalProgress * 100).toInt()}%",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "global",
+                                fontSize = 8.sp,
+                                color = TextGray
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    // Global Speed details and meta metrics
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = err,
+                            text = if (isSyncing) "Transfer Speed: $currentSpeedText" else "Transfer Interrupted",
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onErrorContainer
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSyncing) ForestEcoGreen else CustomFlameOrange
                         )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        val totalSizeFormatted = "22.7 MB"
+                        val transferredFormatted = String.format(java.util.Locale.US, "%.1f MB", totalBytesTransferred / 1_048_576f)
+                        Text(
+                            text = "Transferred: $transferredFormatted / $totalSizeFormatted",
+                            fontSize = 10.sp,
+                            color = TextGray
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Linear progress status representation
+                        LinearProgressIndicator(
+                            progress = { globalProgress },
+                            color = if (syncErrorOccurred) MaterialTheme.colorScheme.error else ForestEcoGreen,
+                            trackColor = Color.White.copy(alpha = 0.08f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                        )
+                    }
+                }
+            }
+
+            // Sub-Section 4: Multi-File Backup List Queue Status Items
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Text(
+                text = "SYNCHRONIZATION QUEUE REGISTRY",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Black,
+                color = TextGray
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                syncQueue.forEach { fileItem ->
+                    val isCurrentSyncing = fileItem.status == "Syncing"
+                    val itemBg = if (isCurrentSyncing) Color.White.copy(alpha = 0.04f) else Color.Transparent
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(itemBg)
+                            .padding(vertical = 4.dp, horizontal = 6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1.5f)
+                            ) {
+                                Icon(
+                                    imageVector = when (fileItem.status) {
+                                        "Synced" -> Icons.Default.CloudDone
+                                        "Syncing" -> Icons.Default.CloudUpload
+                                        "Failed" -> Icons.Default.Error
+                                        else -> Icons.Default.QueryBuilder
+                                    },
+                                    contentDescription = fileItem.status,
+                                    tint = when (fileItem.status) {
+                                        "Synced" -> ForestEcoGreen
+                                        "Syncing" -> AquaticWaveBlue
+                                        "Failed" -> MaterialTheme.colorScheme.error
+                                        else -> Color.Gray
+                                    },
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = fileItem.name,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isCurrentSyncing) Color.White else TextGray,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.End,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = fileItem.size,
+                                    fontSize = 10.sp,
+                                    color = TextGray,
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                                // Row Badge Status text
+                                Text(
+                                    text = fileItem.status,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = when (fileItem.status) {
+                                        "Synced" -> ForestEcoGreen
+                                        "Syncing" -> AquaticWaveBlue
+                                        "Failed" -> MaterialTheme.colorScheme.error
+                                        else -> Color.Gray
+                                    }
+                                )
+                            }
+                        }
+
+                        if (isCurrentSyncing) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                progress = { fileItem.progress },
+                                color = AquaticWaveBlue,
+                                trackColor = Color.White.copy(alpha = 0.05f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(2.dp)
+                                    .clip(RoundedCornerShape(1.dp))
+                            )
+                        }
                     }
                 }
             }
