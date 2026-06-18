@@ -330,7 +330,7 @@ fun BrandingHeader(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Persistent Head Search Bar
+        // Persistent Head Search Bar conforming to Material 3 standard persistent rounded design
         OutlinedTextField(
             value = searchQuery,
             onValueChange = {
@@ -352,7 +352,7 @@ fun BrandingHeader(
                     imageVector = if (isAiSearchMode) Icons.Default.AutoAwesome else Icons.Default.Search, 
                     contentDescription = "Search Icon", 
                     tint = if (isAiSearchMode) CustomFlameOrange else AquaticWaveBlue,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(20.dp)
                 ) 
             },
             trailingIcon = {
@@ -390,9 +390,9 @@ fun BrandingHeader(
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
+                .height(52.dp)
                 .testTag("search_field_input"),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(28.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = if (isAiSearchMode) CustomFlameOrange else AquaticWaveBlue,
                 unfocusedBorderColor = if (isAiSearchMode) CustomFlameOrange.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.15f),
@@ -1149,6 +1149,7 @@ fun FileListSection(
     val explorerMode by viewModel.fileExplorerMode.collectAsStateWithLifecycle()
     val selectedFolder by viewModel.explorerSelectedFolder.collectAsStateWithLifecycle()
     val folderMetadata by viewModel.getFolderCategoriesStream().collectAsStateWithLifecycle(emptyList())
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
 
     Column(modifier = modifier.fillMaxWidth()) {
         // Mode switch row: Folders vs Flat files List
@@ -1319,8 +1320,8 @@ fun FileListSection(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // If in Folders mode and no folder category is selected -> Show the gorgeous virtual folders grid!
-            if (explorerMode == "Folders" && selectedFolder == null) {
+            // If in Folders mode and no folder category is selected -> Show the gorgeous virtual folders grid (only when search query is empty)
+            if (explorerMode == "Folders" && selectedFolder == null && searchQuery.isBlank()) {
                 item {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
