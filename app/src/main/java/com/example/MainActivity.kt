@@ -40,6 +40,7 @@ import com.example.ui.screens.AIChatDrawer
 import com.example.ui.screens.JunkCleanerScreen
 import com.example.ui.screens.StorageAnalyticsScreen
 import com.example.ui.screens.SplashScreen
+import com.example.ui.screens.SyncSettingsScreen
 import com.example.ui.screens.AccountSwitcherBottomSheet
 import com.example.ui.screens.OAuthLoginDialog
 import com.example.ui.theme.*
@@ -428,6 +429,23 @@ fun MainAppContainer() {
                             ),
                             modifier = Modifier.testTag("rail_item_storage_analytics")
                         )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        NavigationRailItem(
+                            selected = selectedIndex == 5,
+                            onClick = { selectedIndex = 5 },
+                            icon = { Icon(Icons.Default.Sync, contentDescription = "Sync Settings") },
+                            label = { Text("Sync Set", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = CustomFlameOrange,
+                                selectedTextColor = Color.White,
+                                indicatorColor = CosmicPrimary,
+                                unselectedIconColor = TextGray,
+                                unselectedTextColor = TextGray
+                            ),
+                            modifier = Modifier.testTag("rail_item_sync_settings")
+                        )
                         
                         Spacer(modifier = Modifier.weight(1f))
                         
@@ -479,6 +497,7 @@ fun MainAppContainer() {
                         2 -> JunkCleanerScreen(viewModel = viewModel, onMenuClick = { scope.launch { drawerState.open() } })
                         3 -> AIScreen(viewModel = viewModel, onMenuClick = { scope.launch { drawerState.open() } })
                         4 -> StorageAnalyticsScreen(viewModel = viewModel, onMenuClick = { scope.launch { drawerState.open() } })
+                        5 -> SyncSettingsScreen(viewModel = viewModel, onMenuClick = { scope.launch { drawerState.open() } })
                     }
                 }
             }
@@ -623,6 +642,25 @@ fun ScrollViewDrawerItemsList(
             ),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.testTag("drawer_item_storage_analytics")
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        NavigationDrawerItem(
+            label = { Text("Sync Settings Center", fontWeight = FontWeight.Bold, fontSize = 14.sp) },
+            selected = selectedIndex == 5,
+            onClick = { onSelect(5) },
+            icon = { Icon(Icons.Default.Sync, contentDescription = null) },
+            colors = NavigationDrawerItemDefaults.colors(
+                selectedContainerColor = CosmicPrimary,
+                selectedIconColor = CustomFlameOrange,
+                selectedTextColor = Color.White,
+                unselectedContainerColor = Color.Transparent,
+                unselectedIconColor = TextGray,
+                unselectedTextColor = TextGray
+            ),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.testTag("drawer_item_sync_settings")
         )
 
         Spacer(modifier = Modifier.height(14.dp))

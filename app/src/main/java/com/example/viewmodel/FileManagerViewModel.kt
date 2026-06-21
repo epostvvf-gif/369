@@ -27,6 +27,16 @@ data class CloudFile(
     val isSynced: Boolean = false // Toggleable sync state for simulated Google Drive integration
 )
 
+data class CloudBackupItem(
+    val id: String,
+    val folderName: String,
+    val fileCount: Int,
+    val totalSizeBytes: Long,
+    val backupTime: Long,
+    val cloudService: String,
+    val isEncryptedSafeFolder: Boolean
+)
+
 data class PreviewFile(
     val id: String,
     val name: String,
@@ -259,6 +269,147 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 safeSyncError.value = "Sync failed: ${e.localizedMessage}"
             } finally {
                 isSafeSyncActive.value = false
+            }
+        }
+    }
+
+    // --- Cloud Folder Sync Manager States ---
+    val selectedCloudSyncService = MutableStateFlow("Google Drive") // "Google Drive", "Dropbox", "OneDrive"
+    val selectedSyncFolders = MutableStateFlow<Set<String>>(setOf("Documents", "Images")) // default
+    val syncFrequency = MutableStateFlow("Daily") // "Manual", "Daily", "Weekly"
+    val isFolderSyncActive = MutableStateFlow(false)
+    val folderSyncProgress = MutableStateFlow(0f)
+    val folderSyncProgressText = MutableStateFlow("")
+    val lastFolderSyncTime = MutableStateFlow<Long?>(null)
+    val folderSyncError = MutableStateFlow<String?>(null)
+    
+    // In-memory list of synced backups in the cloud
+    val cloudBackupMetadataList = MutableStateFlow<List<CloudBackupItem>>(emptyList())
+
+    // Restore States
+    val isRestoreActive = MutableStateFlow(false)
+    val restoreProgress = MutableStateFlow(0f)
+    val restoreProgressText = MutableStateFlow("")
+    val restoreSuccessMessage = MutableStateFlow<String?>(null)
+    val restoreErrorMessage = MutableStateFlow<String?>(null)
+
+    fun performFolderBackup() {
+        viewModelScope.launch {
+            isFolderSyncActive.value = true
+            folderSyncError.value = null
+            folderSyncProgress.value = 0f
+            
+            try {
+                val foldersToSync = selectedSyncFolders.value
+                if (foldersToSync.isEmpty()) {
+                    folderSyncError.value = "Please select at least one folder module to back up."
+                    isFolderSyncActive.value = false
+                    return@launch
+                }
+                
+                val service = selectedCloudSyncService.value
+                val updatedBackupList = cloudBackupMetadataList.value.toMutableList()
+                
+                // Get normal files and safe files
+                val files = repository.normalFiles.first()
+                val safes = repository.safeFiles.first()
+                
+                val totalSteps = foldersToSync.size
+                foldersToSync.forEachIndexed { index, folder ->
+                    folderSyncProgressText.value = "Scanning local inodes for '$folder'..."
+                    delay(400)
+                    
+                    val filteredFiles = if (folder == "Safe Folder") {
+                        safes
+                    } else {
+                        files.filter { it.category == folder }
+                    }
+                    
+                    val fileCount = filteredFiles.size
+                    val totalSize = filteredFiles.sumOf { it.size }
+                    
+                    val stepMultiplier = 1f / totalSteps.toFloat()
+                    val baseProgress = index * stepMultiplier
+                    
+                    if (folder == "Safe Folder") {
+                        folderSyncProgressText.value = "Enforcing PIN Decryption wrap on Vault files..."
+                        for (p in 1..5) {
+                            folderSyncProgress.value = baseProgress + (p / 10f) * stepMultiplier
+                            delay(200)
+                        }
+                    } else {
+                        folderSyncProgressText.value = "Uploading items in '$folder' (0/$fileCount)..."
+                        for (p in 1..4) {
+                            folderSyncProgress.value = baseProgress + (p / 8f) * stepMultiplier
+                            delay(150)
+                        }
+                    }
+                    
+                    val backupId = "backup_${folder.lowercase().replace(" ", "_")}_${service.lowercase().replace(" ", "_")}"
+                    updatedBackupList.removeAll { it.id == backupId }
+                    updatedBackupList.add(
+                        CloudBackupItem(
+                            id = backupId,
+                            folderName = folder,
+                            fileCount = fileCount,
+                            totalSizeBytes = totalSize,
+                            backupTime = System.currentTimeMillis(),
+                            cloudService = service,
+                            isEncryptedSafeFolder = folder == "Safe Folder"
+                        )
+                    )
+                }
+                
+                folderSyncProgressText.value = "Rebuilding secure container mapping indexes..."
+                folderSyncProgress.value = 1f
+                delay(400)
+                
+                cloudBackupMetadataList.value = updatedBackupList
+                lastFolderSyncTime.value = System.currentTimeMillis()
+                folderSyncError.value = null
+            } catch (e: Exception) {
+                folderSyncError.value = "Handshake synchronization failed: ${e.localizedMessage}"
+            } finally {
+                isFolderSyncActive.value = false
+            }
+        }
+    }
+
+    fun performFolderRestore(backupItem: CloudBackupItem) {
+        viewModelScope.launch {
+            isRestoreActive.value = true
+            restoreErrorMessage.value = null
+            restoreSuccessMessage.value = null
+            restoreProgress.value = 0f
+            
+            try {
+                restoreProgressText.value = "Connecting to ${backupItem.cloudService} secure enclave..."
+                delay(400)
+                
+                val steps = 5
+                for (i in 1..steps) {
+                    restoreProgressText.value = "Downloading chunk ${i}/$steps..."
+                    restoreProgress.value = (i.toFloat() / steps.toFloat()) * 0.8f
+                    delay(200)
+                }
+                
+                restoreProgressText.value = "Verifying package integrity signatures..."
+                delay(300)
+                
+                if (backupItem.isEncryptedSafeFolder) {
+                    restoreProgressText.value = "Validating Vault PIN handshake mapping..."
+                    delay(350)
+                }
+                
+                restoreProgress.value = 1f
+                restoreProgressText.value = "Reconstructing folder entries in storage partition..."
+                delay(300)
+                
+                restoreSuccessMessage.value = "Successfully restored ${backupItem.fileCount} items in '${backupItem.folderName}' folder from ${backupItem.cloudService}."
+            } catch (e: Exception) {
+                restoreErrorMessage.value = "Network timeout restoring file segments: ${e.localizedMessage}"
+            } finally {
+                isRestoreActive.value = false
             }
         }
     }
@@ -1559,6 +1710,19 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
         }
+    }
+
+    suspend fun verifyAndUnlockSafePin(pin: String): Boolean {
+        val actualRecord = repository.getSafePin()
+        val correct = actualRecord?.pin == pin
+        if (correct) {
+            isSafeUnlocked.value = true
+        }
+        return correct
+    }
+    
+    suspend fun isPinSet(): Boolean {
+        return repository.getSafePin() != null
     }
 
     fun lockSafeFolder() {

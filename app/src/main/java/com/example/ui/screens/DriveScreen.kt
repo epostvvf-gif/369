@@ -33,6 +33,11 @@ import com.example.viewmodel.FileManagerViewModel
 import com.example.GlobalProfileAvatarButton
 import com.example.data.FileEntity
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.foundation.BorderStroke
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.Date
 
 @Composable
 fun DriveScreen(
@@ -267,6 +272,12 @@ fun DriveScreen(
                                                     viewModel.startSemanticScan()
                                                 }
                                             }
+                                        )
+                                    }
+
+                                    item {
+                                        CloudFolderSyncManagerCard(
+                                            viewModel = viewModel
                                         )
                                     }
 
@@ -2537,6 +2548,763 @@ fun SimulatedCloudUploadDialog(
                     ) {
                         Text("Upload", fontWeight = FontWeight.Bold)
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CloudFolderSyncManagerCard(
+    viewModel: FileManagerViewModel
+) {
+    // Collect settings and progress states
+    val selectedService by viewModel.selectedCloudSyncService.collectAsStateWithLifecycle()
+    val selectedFolders by viewModel.selectedSyncFolders.collectAsStateWithLifecycle()
+    val frequency by viewModel.syncFrequency.collectAsStateWithLifecycle()
+    val isFolderSyncActive by viewModel.isFolderSyncActive.collectAsStateWithLifecycle()
+    val folderSyncProgress by viewModel.folderSyncProgress.collectAsStateWithLifecycle()
+    val folderSyncProgressText by viewModel.folderSyncProgressText.collectAsStateWithLifecycle()
+    val lastSyncTime by viewModel.lastFolderSyncTime.collectAsStateWithLifecycle()
+    val syncError by viewModel.folderSyncError.collectAsStateWithLifecycle()
+    val backupsList by viewModel.cloudBackupMetadataList.collectAsStateWithLifecycle()
+
+    // Restore States
+    val isRestoreActive by viewModel.isRestoreActive.collectAsStateWithLifecycle()
+    val restoreProgress by viewModel.restoreProgress.collectAsStateWithLifecycle()
+    val restoreProgressText by viewModel.restoreProgressText.collectAsStateWithLifecycle()
+    val restoreSuccess by viewModel.restoreSuccessMessage.collectAsStateWithLifecycle()
+    val restoreError by viewModel.restoreErrorMessage.collectAsStateWithLifecycle()
+
+    // Local stats
+    val folderMetadata by viewModel.getFolderCategoriesStream().collectAsStateWithLifecycle(emptyList())
+    val safeFiles by viewModel.safeFiles.collectAsStateWithLifecycle(initialValue = emptyList())
+    val isSafeUnlocked by viewModel.isSafeUnlocked.collectAsStateWithLifecycle()
+
+    // Dialog triggering states
+    var showPinDialogForBackup by remember { mutableStateOf(false) }
+    var showPinDialogForRestore by remember { mutableStateOf<com.example.viewmodel.CloudBackupItem?>(null) }
+    
+    val scope = rememberCoroutineScope()
+
+    // Check if Safe Folder is selected and needs confirmation
+    val isSafeFolderSelected = selectedFolders.contains("Safe Folder")
+
+    // Dynamic compilation of folders
+    val localFolders = remember(folderMetadata, safeFiles) {
+        val list = folderMetadata.toMutableList()
+        val safeCount = safeFiles?.size ?: 0
+        val safeSize = safeFiles?.sumOf { it.size } ?: 0L
+        list.add(
+            com.example.viewmodel.FolderCategoryMetadata(
+                name = "Safe Folder",
+                fileCount = safeCount,
+                totalSize = safeSize
+            )
+        )
+        list
+    }
+
+    // Interactive custom PIN Prompt Dialog
+    if (showPinDialogForBackup) {
+        CloudSyncPinDialog(
+            viewModel = viewModel,
+            title = "Secure Backup Handshake",
+            subtitle = "Vault files require continuous PIN check before copying to cloud backup.",
+            onDismiss = { showPinDialogForBackup = false },
+            onVerified = {
+                showPinDialogForBackup = false
+                viewModel.performFolderBackup()
+            }
+        )
+    }
+
+    showPinDialogForRestore?.let { backupItem ->
+        CloudSyncPinDialog(
+            viewModel = viewModel,
+            title = "Secure Vault Restore",
+            subtitle = "Restore of encrypted Safe Folder files requires verification PIN.",
+            onDismiss = { showPinDialogForRestore = null },
+            onVerified = {
+                showPinDialogForRestore = null
+                viewModel.performFolderRestore(backupItem)
+            }
+        )
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header Title
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(CustomFlameOrange.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudSync,
+                        contentDescription = null,
+                        tint = CustomFlameOrange,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "Cloud Folder Backup Center",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Synchronize & restore secure system directories",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 1. SELECT CLOUD SERVICE
+            Text(
+                text = "Target Cloud Service:",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = CustomFlameOrange
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val services = listOf("Google Drive", "Dropbox", "OneDrive")
+                services.forEach { srv ->
+                    val isSrvSelected = selectedService == srv
+                    val bgSelected = if (isSrvSelected) AquaticWaveBlue.copy(alpha = 0.15f) else DeepSurfaceDark
+                    val borderSelected = if (isSrvSelected) AquaticWaveBlue else Color.Gray.copy(alpha = 0.3f)
+                    
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(bgSelected)
+                            .clickable { viewModel.selectedCloudSyncService.value = srv }
+                            .padding(vertical = 10.dp, horizontal = 8.dp)
+                            .testTag("srv_$srv"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = when (srv) {
+                                    "Google Drive" -> Icons.Default.CloudQueue
+                                    "Dropbox" -> Icons.Default.FolderOpen
+                                    else -> Icons.Default.CloudSync
+                                },
+                                contentDescription = null,
+                                tint = if (isSrvSelected) AquaticWaveBlue else Color.Gray,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = srv,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSrvSelected) Color.White else Color.Gray,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 2. DIRECTORIES CHECKBOX LIST
+            Text(
+                text = "Backup Directories:",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = CustomFlameOrange
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                localFolders.forEach { folder ->
+                    val isChecked = selectedFolders.contains(folder.name)
+                    val iconColor = when (folder.name) {
+                        "Documents" -> AquaticWaveBlue
+                        "Images" -> CustomFlameOrange
+                        "Audio" -> ForestEcoGreen
+                        "Videos" -> MaterialTheme.colorScheme.primary
+                        "Safe Folder" -> ForestEcoGreen
+                        else -> Color.Gray
+                    }
+                    val folderIcon = when (folder.name) {
+                        "Documents" -> Icons.Default.Description
+                        "Images" -> Icons.Default.Image
+                        "Audio" -> Icons.Default.VolumeUp
+                        "Videos" -> Icons.Default.Videocam
+                        "Safe Folder" -> Icons.Default.Lock
+                        else -> Icons.Default.Extension
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(DeepSurfaceDark)
+                            .clickable {
+                                val current = selectedFolders.toMutableSet()
+                                if (current.contains(folder.name)) {
+                                    current.remove(folder.name)
+                                } else {
+                                    current.add(folder.name)
+                                }
+                                viewModel.selectedSyncFolders.value = current
+                            }
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = isChecked,
+                            onCheckedChange = { checked ->
+                                val current = selectedFolders.toMutableSet()
+                                if (checked == true) {
+                                    current.add(folder.name)
+                                } else {
+                                    current.remove(folder.name)
+                                }
+                                viewModel.selectedSyncFolders.value = current
+                            },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = AquaticWaveBlue,
+                                checkmarkColor = Color.White
+                            ),
+                            modifier = Modifier.testTag("chk_${folder.name.replace(" ", "_")}")
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = folderIcon,
+                            contentDescription = null,
+                            tint = iconColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = folder.name,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                if (folder.name == "Safe Folder") {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(ForestEcoGreen.copy(alpha = 0.2f))
+                                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "PIN Protected",
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ForestEcoGreen
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = "${folder.fileCount} items • ${viewModel.formatFileSize(folder.totalSize)}",
+                                fontSize = 10.sp,
+                                color = TextGray
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 3. SYNC FREQUENCY
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Sync Frequency:",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = CustomFlameOrange
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("Manual", "Daily", "Weekly").forEach { freq ->
+                        val isFreqSelected = frequency == freq
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isFreqSelected) AquaticWaveBlue else DeepSurfaceDark)
+                                .clickable { viewModel.syncFrequency.value = freq }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .testTag("freq_$freq")
+                        ) {
+                            Text(
+                                text = freq,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isFreqSelected) Color.White else Color.Gray
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 4. ACTION TRIGGER BACKUP BUTTON
+            Button(
+                onClick = {
+                    if (isSafeFolderSelected && !isSafeUnlocked) {
+                        showPinDialogForBackup = true
+                    } else {
+                        viewModel.performFolderBackup()
+                    }
+                },
+                enabled = !isFolderSyncActive && !isRestoreActive && selectedFolders.isNotEmpty(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = CustomFlameOrange,
+                    disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("btn_trigger_backup"),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color.White)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isFolderSyncActive) "Syncing..." else "Sync Folders to $selectedService",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = Color.White
+                )
+            }
+
+            // Sync Progress Status View
+            if (isFolderSyncActive) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                progress = { folderSyncProgress },
+                                modifier = Modifier.size(20.dp),
+                                color = CustomFlameOrange,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = folderSyncProgressText,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            progress = { folderSyncProgress },
+                            color = CustomFlameOrange,
+                            trackColor = Color.Gray.copy(alpha = 0.2f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(CircleShape)
+                        )
+                    }
+                }
+            }
+
+            if (syncError != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = syncError ?: "",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            lastSyncTime?.let { time ->
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "Last synced: ${viewModel.formatDate(time)} at ${SimpleDateFormat("HH:mm", Locale.US).format(Date(time))}",
+                    fontSize = 10.sp,
+                    color = ForestEcoGreen,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            // RESTORE OR BACKUPS LIST SECTION
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "Available Cloud Backups (Restore):",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = CustomFlameOrange
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (backupsList.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(DeepSurfaceDark)
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.CloudQueue,
+                            contentDescription = null,
+                            tint = Color.Gray.copy(alpha = 0.5f),
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "No backups stored in cloud sandbox yet.\nSelect folders above and tap 'Sync Folders'.",
+                            fontSize = 11.sp,
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    backupsList.forEach { backup ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(DeepSurfaceDark)
+                                .padding(10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(
+                                    imageVector = if (backup.isEncryptedSafeFolder) Icons.Default.Lock else Icons.Default.FolderOpen,
+                                    contentDescription = null,
+                                    tint = if (backup.isEncryptedSafeFolder) ForestEcoGreen else AquaticWaveBlue,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = backup.folderName,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        if (backup.isEncryptedSafeFolder) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Icon(
+                                                imageVector = Icons.Default.Security,
+                                                contentDescription = "Encrypted",
+                                                tint = ForestEcoGreen,
+                                                modifier = Modifier.size(10.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "${backup.fileCount} files • ${viewModel.formatFileSize(backup.totalSizeBytes)} • ${backup.cloudService}",
+                                        fontSize = 9.sp,
+                                        color = TextGray
+                                    )
+                                }
+                            }
+                            
+                            IconButton(
+                                onClick = {
+                                    if (backup.isEncryptedSafeFolder && !isSafeUnlocked) {
+                                        showPinDialogForRestore = backup
+                                    } else {
+                                        viewModel.performFolderRestore(backup)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .testTag("btn_restore_${backup.folderName.replace(" ", "_")}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Restore,
+                                    contentDescription = "Restore",
+                                    tint = AquaticWaveBlue,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Restore operation in progress banner
+            if (isRestoreActive) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = ForestEcoGreen.copy(alpha = 0.15f)),
+                    border = BorderStroke(1.dp, ForestEcoGreen.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            progress = { restoreProgress },
+                            modifier = Modifier.size(18.dp),
+                            color = ForestEcoGreen,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = restoreProgressText,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+
+            // Success or Error Alerts for restore
+            restoreSuccess?.let { msg ->
+                Spacer(modifier = Modifier.height(10.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = ForestEcoGreen.copy(alpha = 0.15f)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ForestEcoGreen, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = msg, fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            restoreError?.let { err ->
+                Spacer(modifier = Modifier.height(10.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = err, fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CloudSyncPinDialog(
+    viewModel: FileManagerViewModel,
+    title: String,
+    subtitle: String,
+    onDismiss: () -> Unit,
+    onVerified: () -> Unit
+) {
+    var pinValue by remember { mutableStateOf("") }
+    var pinErrorText by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
+            shape = RoundedCornerShape(20.dp),
+            border = BorderStroke(1.dp, Color.Gray.copy(alpha = 0.3f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(ForestEcoGreen.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = ForestEcoGreen,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextGray,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // PIN digit bubbles
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    for (i in 0 until 4) {
+                        val isDigitEntered = i < pinValue.length
+                        Box(
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clip(CircleShape)
+                                .background(if (isDigitEntered) AquaticWaveBlue else Color.Gray.copy(alpha = 0.3f))
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                pinErrorText?.let { err ->
+                    Text(
+                        text = err,
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                // Keyboard Number Pad
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    val keys = listOf(
+                        listOf("1", "2", "3"),
+                        listOf("4", "5", "6"),
+                        listOf("7", "8", "9"),
+                        listOf("Clear", "0", "Back")
+                    )
+                    keys.forEach { rowKeys ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            rowKeys.forEach { key ->
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color.White.copy(alpha = 0.05f))
+                                        .clickable {
+                                            if (key == "Clear") {
+                                                pinValue = ""
+                                                pinErrorText = null
+                                            } else if (key == "Back") {
+                                                if (pinValue.isNotEmpty()) {
+                                                    pinValue = pinValue.dropLast(1)
+                                                    pinErrorText = null
+                                                }
+                                            } else {
+                                                if (pinValue.length < 4) {
+                                                    pinValue += key
+                                                    pinErrorText = null
+                                                    if (pinValue.length == 4) {
+                                                        scope.launch {
+                                                            val correct = viewModel.verifyAndUnlockSafePin(pinValue)
+                                                            if (correct) {
+                                                                onVerified()
+                                                            } else {
+                                                                pinValue = ""
+                                                                pinErrorText = "Incorrect 4-Digit PIN sequence!"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        .padding(vertical = 12.dp)
+                                        .testTag("sync_pin_$key"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = key,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Dismiss Protection", color = Color.White)
                 }
             }
         }
