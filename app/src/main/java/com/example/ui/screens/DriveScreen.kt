@@ -82,12 +82,12 @@ fun DriveScreen(
             if (accountVal == null) {
                 // If logged out - show OAuth simulated login screen
                 CloudLoginSimScreen(
-                    onLoginDefault = { token ->
-                        viewModel.addCloudAccount("epostvvf@gmail.com")
+                    onLoginDefault = { name, email, token ->
+                        viewModel.addCloudAccount(email, name)
                         viewModel.updateGoogleDriveToken(token)
                     },
-                    onLoginCustom = { email, token ->
-                        viewModel.addCloudAccount(email)
+                    onLoginCustom = { name, email, token ->
+                        viewModel.addCloudAccount(email, name)
                         viewModel.updateGoogleDriveToken(token)
                     }
                 )
@@ -383,9 +383,15 @@ fun CloudBanner(
 // --- OAuth / Simul Login Screen ---
 @Composable
 fun CloudLoginSimScreen(
-    onLoginDefault: (String) -> Unit,
-    onLoginCustom: (String, String) -> Unit
+    onLoginDefault: (String, String, String) -> Unit,
+    onLoginCustom: (String, String, String) -> Unit
 ) {
+    var isAuthenticating by remember { mutableStateOf(false) }
+    var authSuccess by remember { mutableStateOf(false) }
+    var authStepText by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    var inputName by remember { mutableStateOf("") }
     var inputEmail by remember { mutableStateOf("") }
     var inputToken by remember { mutableStateOf("oauth_token_client_vishwa_58284_v7") }
 
@@ -394,86 +400,216 @@ fun CloudLoginSimScreen(
             .fillMaxWidth()
             .padding(24.dp),
         colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
-        shape = RoundedCornerShape(20.dp)
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
     ) {
         Column(
             modifier = Modifier.padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                Icons.Default.VpnKey,
-                contentDescription = null,
-                tint = CustomFlameOrange,
-                modifier = Modifier.size(48.dp)
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = "Cloud Integration Simulator",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "Simulate cloud-profile accounts login using mock OAuth tokens and check file states.",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextGray,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            OutlinedTextField(
-                value = inputEmail,
-                onValueChange = { inputEmail = it },
-                label = { Text("Sandbox Email (e.g. user@gmail.com)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().testTag("sandbox_email_input"),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = CustomFlameOrange,
-                    unfocusedBorderColor = Color.Gray
+            if (!isAuthenticating && !authSuccess) {
+                // --- INITIAL HUB: Google Sign In Prompt ---
+                Icon(
+                    Icons.Default.CloudQueue,
+                    contentDescription = null,
+                    tint = CustomFlameOrange,
+                    modifier = Modifier.size(54.dp)
                 )
-            )
 
-            Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-            OutlinedTextField(
-                value = inputToken,
-                onValueChange = { inputToken = it },
-                label = { Text("OAuth Sandbox Access-Token") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().testTag("sandbox_token_input"),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = CustomFlameOrange,
-                    unfocusedBorderColor = Color.Gray
-                ),
-                trailingIcon = { Icon(Icons.Default.VerifiedUser, "sim token", tint = ForestEcoGreen) }
-            )
+                Text(
+                    text = "Google Drive Secure Hub",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
 
-            Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-            Button(
-                onClick = {
-                    if (inputEmail.isNotBlank()) {
-                        onLoginCustom(inputEmail, inputToken)
-                    } else {
-                        onLoginDefault(inputToken)
+                Text(
+                    text = "Unlock cloud file storage & synchronization by authorizing access with your Google Account.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextGray,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // Beautiful custom G Sign-In Button
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(26.dp))
+                        .clickable {
+                            scope.launch {
+                                isAuthenticating = true
+                                authStepText = "Contacting accounts.google.com secure endpoint..."
+                                kotlinx.coroutines.delay(600)
+                                authStepText = "Verifying client signature & permissions..."
+                                kotlinx.coroutines.delay(600)
+                                authStepText = "Generating simulated secure session access token..."
+                                kotlinx.coroutines.delay(600)
+                                isAuthenticating = false
+                                authSuccess = true
+                            }
+                        }
+                        .testTag("google_signin_btn"),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        // Drawing G logo utilizing colored dots
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            modifier = Modifier.padding(end = 12.dp)
+                        ) {
+                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF4285F4))) // Blue
+                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFEA4335))) // Red
+                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFFBBC05))) // Yellow
+                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF34A853))) // Green
+                        }
+
+                        Text(
+                            text = "Continue with Google",
+                            color = Color(0xFF1E1E1E),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
-                modifier = Modifier.fillMaxWidth().testTag("sandbox_login_btn")
-            ) {
-                Text("Log In Simulate with OAuth Sandbox", fontWeight = FontWeight.Bold)
-            }
+                }
 
-            Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
-            TextButton(onClick = { onLoginDefault("oauth_token_client_vishwa_58284_v7") }) {
-                Text("Bypass with default pilot (epostvvf@gmail.com)", color = AquaticWaveBlue, fontSize = 11.sp)
+                TextButton(
+                    onClick = {
+                        onLoginDefault("Demo User", "sandbox_guest@gmail.com", "oauth_token_client_vishwa_58284_v7")
+                    },
+                    modifier = Modifier.testTag("quick_bypass_btn")
+                ) {
+                    Text(
+                        text = "Instant Sign-In with Demo Account",
+                        color = AquaticWaveBlue,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp
+                    )
+                }
+
+            } else if (isAuthenticating) {
+                // --- AUTHENTICATING STATE: Simulated Connection Loop ---
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                CircularProgressIndicator(
+                    color = CustomFlameOrange,
+                    modifier = Modifier.size(48.dp)
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = "Google Authentication Protocol",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = authStepText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextGray,
+                    textAlign = TextAlign.Center,
+                    fontWeight = FontWeight.Medium
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+
+            } else {
+                // --- PROFILE CONFIGURATION DIALOG STATE: Storing Details Locally ---
+                Icon(
+                    Icons.Default.VerifiedUser,
+                    contentDescription = null,
+                    tint = ForestEcoGreen,
+                    modifier = Modifier.size(48.dp)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Simulated Authorization Approved",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Confirm the profile details below to persist your credentials locally.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextGray,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                OutlinedTextField(
+                    value = inputName,
+                    onValueChange = { inputName = it },
+                    label = { Text("Your Full Name") },
+                    placeholder = { Text("e.g. Patel Vishwa") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = CustomFlameOrange,
+                        unfocusedBorderColor = Color.Gray
+                    ),
+                    modifier = Modifier.fillMaxWidth().testTag("custom_profile_name_input")
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = inputEmail,
+                    onValueChange = { inputEmail = it },
+                    label = { Text("Your Google Gmail Address") },
+                    placeholder = { Text("e.g. vishwa@gmail.com") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = CustomFlameOrange,
+                        unfocusedBorderColor = Color.Gray
+                    ),
+                    modifier = Modifier.fillMaxWidth().testTag("custom_profile_email_input")
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Button(
+                    onClick = {
+                        val finalEmail = if (inputEmail.isBlank()) "guest_${System.currentTimeMillis()}@vishwa.org" else inputEmail
+                        val finalName = if (inputName.isBlank()) "Vishwa Guest" else inputName
+                        onLoginCustom(finalName, finalEmail, inputToken)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("submit_custom_profile_btn")
+                ) {
+                    Text("Complete Local Registration", fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                TextButton(onClick = { authSuccess = false }) {
+                    Text("Go Back", color = Color.White.copy(alpha = 0.6f))
+                }
             }
         }
     }
@@ -2428,8 +2564,9 @@ fun AccountSwitcherBottomSheet(
 @Composable
 fun OAuthLoginDialog(
     onDismiss: () -> Unit,
-    onAddLoginSim: (String, String) -> Unit
+    onAddLoginSim: (String, String, String) -> Unit
 ) {
+    var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
 
@@ -2448,6 +2585,17 @@ fun OAuthLoginDialog(
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Profile Name (e.g. Patel Vishwa)") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = CustomFlameOrange),
+                    modifier = Modifier.fillMaxWidth().testTag("oauth_name_input")
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedTextField(
                     value = email,
@@ -2481,8 +2629,9 @@ fun OAuthLoginDialog(
 
                     Button(
                         onClick = {
+                            val targetName = if (name.isBlank()) "Sandbox User" else name
                             val targetEmail = if (email.isBlank()) "user_${System.currentTimeMillis()}@vishwa.org" else email
-                            onAddLoginSim(targetEmail, token)
+                            onAddLoginSim(targetName, targetEmail, token)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
                         modifier = Modifier.weight(1f).testTag("btn_confirm_oauth")

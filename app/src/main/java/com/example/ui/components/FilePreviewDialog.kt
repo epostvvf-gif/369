@@ -475,7 +475,7 @@ fun ImagePreviewer(file: PreviewFile) {
 
 @Composable
 fun DocumentPreviewer(file: PreviewFile) {
-    val isTxt = file.name.substringAfterLast('.', "").lowercase() in listOf("txt", "log", "cache")
+    val isTxt = file.name.substringAfterLast('.', "").lowercase() in listOf("txt", "log", "cache", "json", "md", "csv", "html", "xml")
     Box(
         modifier = Modifier
             .fillMaxSize()

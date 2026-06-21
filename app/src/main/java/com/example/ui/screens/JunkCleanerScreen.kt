@@ -45,10 +45,30 @@ fun JunkCleanerScreen(
     val isGeminiJunkScanning by viewModel.isGeminiJunkScanning.collectAsStateWithLifecycle()
     val aiSuggestedJunkItems by viewModel.aiSuggestedJunkItems.collectAsStateWithLifecycle()
 
+    val isBgScanning by viewModel.isBgServiceScanning.collectAsStateWithLifecycle()
+    val isBgCleaning by viewModel.isBgServiceCleaning.collectAsStateWithLifecycle()
+    val bgProgress by viewModel.bgServiceScanProgress.collectAsStateWithLifecycle()
+    val bgTempItems by viewModel.bgServiceTempItems.collectAsStateWithLifecycle()
+    val bgCacheItems by viewModel.bgServiceCacheItems.collectAsStateWithLifecycle()
+    val bgDupItems by viewModel.bgServiceDuplicateItems.collectAsStateWithLifecycle()
+    val bgCleanedBytes by viewModel.bgServiceCleanedBytes.collectAsStateWithLifecycle()
+    val bgIsCleanDone by viewModel.bgServiceIsCleanDone.collectAsStateWithLifecycle()
+
+    var toggledOffServiceIds by remember { mutableStateOf(setOf<String>()) }
+    var activeSubTab by remember { mutableStateOf(0) } // 0: Standard, 1: Background Service, 2: Gemini AI
+
     // Auto trigger scan on initial load if empty to make it engaging
     LaunchedEffect(Unit) {
-        if (scannedJunkItems.isEmpty()) {
+        if (scannedJunkItems.isEmpty() && !isJunkScanning) {
             viewModel.startJunkScan()
+        }
+    }
+
+    LaunchedEffect(bgIsCleanDone) {
+        if (bgIsCleanDone) {
+            viewModel.junkBytesCleaned.value = bgCleanedBytes
+            viewModel.showCelebrationDialog.value = true
+            viewModel.resetBackgroundServiceCleanDone()
         }
     }
 
@@ -61,10 +81,14 @@ fun JunkCleanerScreen(
             // Screen Header Banner with Navigation Hamburger Menu
             JunkHeaderBanner(viewModel = viewModel, onMenuClick = onMenuClick)
 
-            if (isJunkScanning) {
+            if (isJunkScanning || isBgScanning) {
                 // Scanning view with pulsing circle animation & details
-                JunkScanningProgressState()
-            } else if (isJunkCleaning) {
+                if (isBgScanning) {
+                    JunkBgScanningProgressState(bgProgress)
+                } else {
+                    JunkScanningProgressState()
+                }
+            } else if (isJunkCleaning || isBgCleaning) {
                 // Cleaning execution in progress
                 JunkCleaningInProgressState()
             } else {
@@ -74,8 +98,6 @@ fun JunkCleanerScreen(
                         .fillMaxSize()
                         .padding(16.dp)
                 ) {
-                    var activeSubTab by remember { mutableStateOf(0) } // 0: Standard, 1: Gemini AI
-
                     val checkedItems = scannedJunkItems.filter { it.isChecked }
                     val totalReclaimableSize = checkedItems.sumOf { it.size }
                     val cacheItems = scannedJunkItems.filter { !it.isFolder }
@@ -95,7 +117,15 @@ fun JunkCleanerScreen(
                         !aiDuplicateItems.contains(it) 
                     }
 
-                    val currentReclaimSize = if (activeSubTab == 0) totalReclaimableSize else totalAiReclaimableSize
+                    val activeBgItems = bgTempItems + bgCacheItems + bgDupItems
+                    val checkedBgItems = activeBgItems.filter { !toggledOffServiceIds.contains(it.id) }
+                    val totalBgReclaimableSize = checkedBgItems.sumOf { it.size }
+
+                    val currentReclaimSize = when (activeSubTab) {
+                        0 -> totalReclaimableSize
+                        1 -> totalBgReclaimableSize
+                        else -> totalAiReclaimableSize
+                    }
 
                     // Brief explanation
                     Text(
@@ -123,19 +153,54 @@ fun JunkCleanerScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                "Standard Clean",
-                                fontSize = 12.sp,
+                                "Standard",
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (activeSubTab == 0) Color.White else TextGray
+                                color = if (activeSubTab == 0) Color.White else TextGray,
+                                maxLines = 1
                             )
                         }
                         Box(
                             modifier = Modifier
-                                .weight(1f)
+                                .weight(1.2f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(if (activeSubTab == 1) CustomFlameOrange else Color.Transparent)
                                 .clickable { 
-                                    activeSubTab = 1 
+                                    activeSubTab = 1
+                                    if (bgTempItems.isEmpty() && bgCacheItems.isEmpty() && bgDupItems.isEmpty() && !isBgScanning) {
+                                        viewModel.startBackgroundServiceScan()
+                                    }
+                                }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Dns,
+                                    contentDescription = null,
+                                    tint = if (activeSubTab == 1) Color.White else CustomFlameOrange,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    "Service Scan",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (activeSubTab == 1) Color.White else TextGray,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1.2f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (activeSubTab == 2) CustomFlameOrange else Color.Transparent)
+                                .clickable { 
+                                    activeSubTab = 2 
                                     if (aiSuggestedJunkItems.isEmpty() && !isGeminiJunkScanning) {
                                         viewModel.startGeminiJunkScan()
                                     }
@@ -150,15 +215,16 @@ fun JunkCleanerScreen(
                                 Icon(
                                     imageVector = Icons.Default.AutoAwesome,
                                     contentDescription = null,
-                                    tint = if (activeSubTab == 1) Color.White else CustomFlameOrange,
-                                    modifier = Modifier.size(14.dp)
+                                    tint = if (activeSubTab == 2) Color.White else CustomFlameOrange,
+                                    modifier = Modifier.size(11.dp)
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    "Gemini AI Smart Check",
-                                    fontSize = 12.sp,
+                                    "Gemini AI",
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (activeSubTab == 1) Color.White else TextGray
+                                    color = if (activeSubTab == 2) Color.White else TextGray,
+                                    maxLines = 1
                                 )
                             }
                         }
@@ -180,8 +246,13 @@ fun JunkCleanerScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column {
+                                val metricTitle = when (activeSubTab) {
+                                    0 -> "Ready to Reclaim"
+                                    1 -> "Background Service Selected Space"
+                                    else -> "Gemini AI Suggested Space"
+                                }
                                 Text(
-                                    text = if (activeSubTab == 0) "Ready to Reclaim" else "Gemini AI Suggested Space",
+                                    text = metricTitle,
                                     fontSize = 12.sp,
                                     color = TextGray,
                                     fontWeight = FontWeight.Medium
@@ -203,7 +274,11 @@ fun JunkCleanerScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = if (activeSubTab == 0) Icons.Default.BatterySaver else Icons.Default.AutoAwesome,
+                                    imageVector = when (activeSubTab) {
+                                        0 -> Icons.Default.BatterySaver
+                                        1 -> Icons.Default.RunCircle
+                                        else -> Icons.Default.AutoAwesome
+                                    },
                                     contentDescription = null,
                                     tint = CustomFlameOrange,
                                     modifier = Modifier.size(24.dp)
@@ -294,6 +369,128 @@ fun JunkCleanerScreen(
                                         ) {
                                             Text("Scan Again", fontWeight = FontWeight.Bold, color = Color.White)
                                         }
+                                    }
+                                }
+                            }
+                        } else if (activeSubTab == 1) {
+                            // Background System Service Scan Results
+                            if (activeBgItems.isEmpty()) {
+                                item {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 48.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Dns,
+                                            contentDescription = null,
+                                            tint = CustomFlameOrange,
+                                            modifier = Modifier.size(54.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = "Service Scan Ready",
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "Run secure background system daemon scanner to analyze real duplicated data, temporary blocks, and redundant system caches.",
+                                            fontSize = 12.sp,
+                                            color = TextGray,
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Spacer(modifier = Modifier.height(20.dp))
+                                        Button(
+                                            onClick = { viewModel.startBackgroundServiceScan() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Text("Start Background Service Scan", fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (bgTempItems.isNotEmpty()) {
+                                    item {
+                                        Text(
+                                            text = "TEMPORARY LOGS & STACKS (${bgTempItems.size})",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = CustomFlameOrange,
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        )
+                                    }
+                                    items(bgTempItems) { item ->
+                                        val transformed = item.copy(isChecked = !toggledOffServiceIds.contains(item.id))
+                                        JunkCleanerItemRow(
+                                            item = transformed,
+                                            onToggle = {
+                                                toggledOffServiceIds = if (toggledOffServiceIds.contains(item.id)) {
+                                                    toggledOffServiceIds - item.id
+                                                } else {
+                                                    toggledOffServiceIds + item.id
+                                                }
+                                            },
+                                            viewModel = viewModel
+                                        )
+                                    }
+                                }
+
+                                if (bgCacheItems.isNotEmpty()) {
+                                    item {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "SYSTEM CACHED RESIDUALS (${bgCacheItems.size})",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = AquaticWaveBlue,
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        )
+                                    }
+                                    items(bgCacheItems) { item ->
+                                        val transformed = item.copy(isChecked = !toggledOffServiceIds.contains(item.id))
+                                        JunkCleanerItemRow(
+                                            item = transformed,
+                                            onToggle = {
+                                                toggledOffServiceIds = if (toggledOffServiceIds.contains(item.id)) {
+                                                    toggledOffServiceIds - item.id
+                                                } else {
+                                                    toggledOffServiceIds + item.id
+                                                }
+                                            },
+                                            viewModel = viewModel
+                                        )
+                                    }
+                                }
+
+                                if (bgDupItems.isNotEmpty()) {
+                                    item {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "DETECTED BINARY DUPLICATES (${bgDupItems.size})",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ForestEcoGreen,
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        )
+                                    }
+                                    items(bgDupItems) { item ->
+                                        val transformed = item.copy(isChecked = !toggledOffServiceIds.contains(item.id), isAiSuggested = true)
+                                        JunkCleanerItemRow(
+                                            item = transformed,
+                                            onToggle = {
+                                                toggledOffServiceIds = if (toggledOffServiceIds.contains(item.id)) {
+                                                    toggledOffServiceIds - item.id
+                                                } else {
+                                                    toggledOffServiceIds + item.id
+                                                }
+                                            },
+                                            viewModel = viewModel
+                                        )
                                     }
                                 }
                             }
@@ -474,7 +671,45 @@ fun JunkCleanerScreen(
                                 }
                             }
                         }
-                    } else if (activeSubTab == 1 && aiSuggestedJunkItems.isNotEmpty() && !isGeminiJunkScanning) {
+                    } else if (activeSubTab == 1 && (bgTempItems.isNotEmpty() || bgCacheItems.isNotEmpty() || bgDupItems.isNotEmpty())) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                        ) {
+                            Button(
+                                onClick = { 
+                                    viewModel.startBackgroundServiceClean(checkedBgItems.map { it.id })
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .testTag("btn_service_clear_junk"),
+                                colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange),
+                                shape = RoundedCornerShape(12.dp),
+                                enabled = checkedBgItems.isNotEmpty()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteSweep,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Clear Junk (${checkedBgItems.size} items Selected)",
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 13.sp,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+                    } else if (activeSubTab == 2 && aiSuggestedJunkItems.isNotEmpty() && !isGeminiJunkScanning) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -864,3 +1099,78 @@ fun JunkCleanerItemRow(
         )
     }
 }
+
+@Composable
+fun JunkBgScanningProgressState(progress: Float) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+        val scaleAnim by infiniteTransition.animateFloat(
+            initialValue = 0.85f,
+            targetValue = 1.15f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "scale"
+        )
+
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(24.dp)
+        ) {
+            CircularProgressIndicator(
+                progress = { progress },
+                color = CustomFlameOrange,
+                strokeWidth = 6.dp,
+                modifier = Modifier.size(112.dp)
+            )
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(CircleShape)
+                    .background(CustomFlameOrange.copy(alpha = 0.15f * scaleAnim)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Dns,
+                    contentDescription = null,
+                    tint = CustomFlameOrange,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "Background daemon active...",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Black,
+            color = Color.White
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Performing intensive deep-scan: Grouping duplicates & sizing caches (${(progress * 100).toInt()}% completed)",
+            fontSize = 12.sp,
+            color = TextGray,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        LinearProgressIndicator(
+            progress = { progress },
+            color = CustomFlameOrange,
+            trackColor = Color.White.copy(alpha = 0.1f),
+            modifier = Modifier
+                .fillMaxWidth(0.8f)
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
+        )
+    }
+}
+

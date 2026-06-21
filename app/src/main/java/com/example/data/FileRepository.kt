@@ -18,6 +18,7 @@ class FileRepository(private val fileDao: FileDao) {
     suspend fun deleteFiles(files: List<FileEntity>) = fileDao.deleteFiles(files)
     suspend fun deleteFileById(id: Int) = fileDao.deleteFileById(id)
     suspend fun updateSafeStatus(ids: List<Int>, isSafe: Boolean) = fileDao.updateSafeStatus(ids, isSafe)
+    suspend fun updateFilesCategory(ids: List<Int>, category: String) = fileDao.updateFilesCategory(ids, category)
     suspend fun clearAllJunk() = fileDao.clearAllJunk()
 
     // Tag management

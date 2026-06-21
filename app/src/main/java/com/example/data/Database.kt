@@ -75,6 +75,9 @@ interface FileDao {
     @Query("UPDATE local_files SET isSafe = :isSafe WHERE id IN (:ids)")
     suspend fun updateSafeStatus(ids: List<Int>, isSafe: Boolean)
 
+    @Query("UPDATE local_files SET category = :category WHERE id IN (:ids)")
+    suspend fun updateFilesCategory(ids: List<Int>, category: String)
+
     @Query("DELETE FROM local_files WHERE isJunk = 1")
     suspend fun clearAllJunk()
 

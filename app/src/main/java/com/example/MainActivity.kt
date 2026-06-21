@@ -99,6 +99,7 @@ fun MainAppContainer() {
     val isChatDrawerOpen by viewModel.isChatDrawerOpen.collectAsStateWithLifecycle()
     
     val activeAccount by viewModel.selectedCloudAccount.collectAsStateWithLifecycle()
+    val activeAccountName by viewModel.selectedCloudAccountName.collectAsStateWithLifecycle()
     val accounts by viewModel.cloudAccounts.collectAsStateWithLifecycle()
     val showAccountDialog by viewModel.showGlobalAccountSwitcher.collectAsStateWithLifecycle()
     val showAddAccountDialog by viewModel.showGlobalAddAccount.collectAsStateWithLifecycle()
@@ -143,8 +144,8 @@ fun MainAppContainer() {
     if (showAddAccountDialog) {
         OAuthLoginDialog(
             onDismiss = { viewModel.showGlobalAddAccount.value = false },
-            onAddLoginSim = { email, token ->
-                viewModel.addCloudAccount(email)
+            onAddLoginSim = { name, email, token ->
+                viewModel.addCloudAccount(email, name)
                 viewModel.showGlobalAddAccount.value = false
             }
         )
@@ -269,14 +270,23 @@ fun MainAppContainer() {
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
                                     Text(
-                                        text = activeAccount ?: "No Account / Guest",
+                                        text = activeAccountName ?: activeAccount ?: "No Account / Guest",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (activeAccount != null && activeAccountName != null) {
+                                        Text(
+                                            text = activeAccount ?: "",
+                                            fontSize = 9.sp,
+                                            color = TextGray,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
                                         Box(
                                             modifier = Modifier
                                                 .size(6.dp)
@@ -746,13 +756,13 @@ fun ScrollViewDrawerItemsList(
                 // Developer Contacts
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        text = "Developer Contact",
+                        text = "Support Contact",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextGray
                     )
                     Text(
-                        text = "epostvvf@gmail.com",
+                        text = "support@vishwa.org",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color.White

@@ -77,12 +77,58 @@ fun MainScreen(
     val enteredPinBuffer by viewModel.enteredPinBuffer.collectAsStateWithLifecycle()
     val pinErrorMessage by viewModel.pinErrorMessage.collectAsStateWithLifecycle()
     
+    val isBulkSyncing by viewModel.isBulkSyncing.collectAsStateWithLifecycle()
+    val bulkSyncProgress by viewModel.bulkSyncProgress.collectAsStateWithLifecycle()
+
     var showAddFileDialog by remember { mutableStateOf(false) }
     var inSafeViewMode by remember { mutableStateOf(false) }
     var isFloatingChatOpen by remember { mutableStateOf(false) }
     var floatingUserText by remember { mutableStateOf("") }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        if (isBulkSyncing) {
+            Dialog(onDismissRequest = {}) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .testTag("bulk_sync_progress_dialog"),
+                    colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, CustomFlameOrange.copy(alpha = 0.3f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            color = CustomFlameOrange,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text(
+                            text = "Cloud Sync in Progress",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        LinearProgressIndicator(
+                            progress = { bulkSyncProgress },
+                            color = CustomFlameOrange,
+                            trackColor = Color.White.copy(alpha = 0.1f),
+                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
+                        )
+                        Text(
+                            text = "Synchronizing selected files to simulated Google Drive secure cloud storage...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextGray,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+
         filePreview?.let { previewFile ->
             com.example.ui.components.FilePreviewDialog(
                 previewFile = previewFile,
@@ -139,7 +185,9 @@ fun MainScreen(
                         onSelectAll = { viewModel.selectAllNormalFiles() },
                         onClearAll = { viewModel.clearLocalSelection() },
                         onDeleteSelected = { viewModel.deleteSelectedLocalFiles() },
-                        onMoveToSafe = { viewModel.moveSelectedToSafe() }
+                        onMoveToSafe = { viewModel.moveSelectedToSafe() },
+                        onMoveToCategory = { cat -> viewModel.moveSelectedToCategory(cat) },
+                        onBulkSync = { viewModel.syncSelectedToCloud() }
                     )
                 }
 
@@ -1328,7 +1376,9 @@ fun MultiSelectActionBar(
     onSelectAll: () -> Unit,
     onClearAll: () -> Unit,
     onDeleteSelected: () -> Unit,
-    onMoveToSafe: () -> Unit
+    onMoveToSafe: () -> Unit,
+    onMoveToCategory: (String) -> Unit,
+    onBulkSync: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -1356,13 +1406,76 @@ fun MultiSelectActionBar(
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Button(
                     onClick = onSelectAll,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                     contentPadding = PaddingValues(horizontal = 10.dp)
                 ) {
                     Text("Select All", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+
+                // Dropdown trigger for Bulk Move categories
+                var showCategoryMenu by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(
+                        onClick = { showCategoryMenu = true },
+                        modifier = Modifier.testTag("action_bulk_move_folders")
+                    ) {
+                        Icon(
+                            Icons.Default.Folder,
+                            contentDescription = "Bulk Move Category",
+                            tint = AquaticWaveBlue
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showCategoryMenu,
+                        onDismissRequest = { showCategoryMenu = false },
+                        modifier = Modifier.background(DeepSurfaceDark).testTag("dropdown_bulk_move")
+                    ) {
+                        val folders = listOf("Documents", "Images", "Audio", "Videos", "Others")
+                        folders.forEach { fName ->
+                            DropdownMenuItem(
+                                text = { Text(fName, color = Color.White, fontSize = 13.sp) },
+                                leadingIcon = {
+                                    val icon = when (fName) {
+                                        "Documents" -> Icons.Default.Description
+                                        "Images" -> Icons.Default.Image
+                                        "Audio" -> Icons.Default.VolumeUp
+                                        "Videos" -> Icons.Default.Videocam
+                                        else -> Icons.Default.InsertDriveFile
+                                    }
+                                    val color = when (fName) {
+                                        "Documents" -> AquaticWaveBlue
+                                        "Images" -> CustomFlameOrange
+                                        "Audio" -> ForestEcoGreen
+                                        "Videos" -> MaterialTheme.colorScheme.primary
+                                        else -> MaterialTheme.colorScheme.outline
+                                    }
+                                    Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
+                                },
+                                onClick = {
+                                    showCategoryMenu = false
+                                    onMoveToCategory(fName)
+                                },
+                                modifier = Modifier.testTag("bulk_move_option_$fName")
+                            )
+                        }
+                    }
+                }
+
+                IconButton(
+                    onClick = onBulkSync,
+                    modifier = Modifier.testTag("action_bulk_sync")
+                ) {
+                    Icon(
+                        Icons.Default.CloudUpload,
+                        contentDescription = "Bulk Sync to Drive",
+                        tint = CustomFlameOrange
+                    )
                 }
 
                 IconButton(

@@ -10,6 +10,8 @@ import com.example.data.AppDatabase
 import com.example.data.FileEntity
 import com.example.data.FileRepository
 import com.example.service.CloudSyncManager
+import com.example.service.JunkBackgroundService
+import android.content.Intent
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -89,6 +91,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     private val repository: FileRepository
     private val sharedPrefs = application.getSharedPreferences("file_manager_prefs", Context.MODE_PRIVATE)
     val geminiApiKey = MutableStateFlow("")
+    val cloudAccounts = MutableStateFlow(listOf("sandbox_guest@gmail.com", "workspace_admin@corp.io"))
+    val selectedCloudAccount = MutableStateFlow<String?>(null)
+    val selectedCloudAccountName = MutableStateFlow<String?>(null)
 
     val internalTotalSpace = MutableStateFlow(256 * 1024 * 1024 * 1024L)
     val internalFreeSpace = MutableStateFlow(181 * 1024 * 1024 * 1024L)
@@ -108,6 +113,15 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         // Load saved API Key and observe changes for persistence
         val savedKey = sharedPrefs.getString("gemini_api_key", "") ?: ""
         geminiApiKey.value = savedKey
+
+        // Load saved local user profile login details
+        val savedEmail = sharedPrefs.getString("logged_in_email", null)
+        val savedName = sharedPrefs.getString("logged_in_name", null)
+        val savedAccounts = sharedPrefs.getStringSet("saved_cloud_accounts", setOf("workspace_admin@corp.io")) ?: setOf("workspace_admin@corp.io")
+
+        selectedCloudAccount.value = savedEmail
+        selectedCloudAccountName.value = savedName
+        cloudAccounts.value = savedAccounts.toList()
         
         viewModelScope.launch {
             geminiApiKey.collect { key ->
@@ -183,6 +197,39 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     val aiSuggestedJunkItems = MutableStateFlow<List<JunkItem>>(emptyList())
     val geminiJunkError = MutableStateFlow<String?>(null)
 
+    // --- Junk Background Service Flow Hooks ---
+    val isBgServiceScanning = JunkBackgroundService.isScanning
+    val isBgServiceCleaning = JunkBackgroundService.isCleaning
+    val bgServiceScanProgress = JunkBackgroundService.scanProgress
+    val bgServiceTempItems = JunkBackgroundService.scannedTempItems
+    val bgServiceCacheItems = JunkBackgroundService.scannedCacheItems
+    val bgServiceDuplicateItems = JunkBackgroundService.scannedDuplicateItems
+    val bgServiceCleanedBytes = JunkBackgroundService.cleanedBytesLastRun
+    val bgServiceIsCleanDone = JunkBackgroundService.isCleanDoneTrigger
+
+    fun startBackgroundServiceScan() {
+        val context = getApplication<Application>()
+        val intent = Intent(context, JunkBackgroundService::class.java).apply {
+            action = JunkBackgroundService.ACTION_START_SCAN
+        }
+        context.startService(intent)
+    }
+
+    fun startBackgroundServiceClean(itemIds: List<String>? = null) {
+        val context = getApplication<Application>()
+        val intent = Intent(context, JunkBackgroundService::class.java).apply {
+            action = JunkBackgroundService.ACTION_BULK_CLEAN
+            if (itemIds != null) {
+                putStringArrayListExtra(JunkBackgroundService.EXTRA_IDS_TO_CLEAN, ArrayList(itemIds))
+            }
+        }
+        context.startService(intent)
+    }
+
+    fun resetBackgroundServiceCleanDone() {
+        JunkBackgroundService.isCleanDoneTrigger.value = false
+    }
+
     // --- Duplicate Scanner States ---
     val showDuplicateScanner = MutableStateFlow(false)
     val isDuplicateScanning = MutableStateFlow(false)
@@ -199,8 +246,6 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     private var tempRegisterPin = ""
 
     // --- Cloud Google Drive Switcher Simulator States ---
-    val cloudAccounts = MutableStateFlow(listOf("epostvvf@gmail.com", "workspace_admin@corp.io"))
-    val selectedCloudAccount = MutableStateFlow<String?>("epostvvf@gmail.com")
     val searchCloudQuery = MutableStateFlow("")
     val selectedCloudFileIds = MutableStateFlow<Set<String>>(emptySet())
     val isCloudScanning = MutableStateFlow(false)
@@ -1318,6 +1363,56 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    // --- Move Selected Files to a custom Category / Folder ---
+    fun moveSelectedToCategory(category: String) {
+        viewModelScope.launch {
+            val idsToMove = selectedLocalFileIds.value.toList()
+            repository.updateFilesCategory(idsToMove, category)
+            clearLocalSelection()
+        }
+    }
+
+    // --- Bulk Cloud Sync with status progress indicators ---
+    val isBulkSyncing = MutableStateFlow(false)
+    val bulkSyncProgress = MutableStateFlow(0f)
+
+    fun syncSelectedToCloud() {
+        viewModelScope.launch {
+            val idsToSync = selectedLocalFileIds.value
+            val targetFiles = allLocalFiles.value.filter { it.id in idsToSync }
+            if (targetFiles.isEmpty()) return@launch
+
+            isBulkSyncing.value = true
+            bulkSyncProgress.value = 0f
+
+            // Simulate file segments synchronization chunks
+            for (i in 1..10) {
+                delay(120)
+                bulkSyncProgress.value = i / 10f
+            }
+
+            val currentCloud = baseCloudFiles.value.toMutableList()
+            for (localFile in targetFiles) {
+                val cloudId = "local_sync_${localFile.id}"
+                if (currentCloud.none { it.id == cloudId }) {
+                    currentCloud.add(
+                        CloudFile(
+                            id = cloudId,
+                            name = localFile.name,
+                            size = localFile.size,
+                            dateUpdated = System.currentTimeMillis(),
+                            semanticScore = 100,
+                            isSynced = true
+                        )
+                    )
+                }
+            }
+            baseCloudFiles.value = currentCloud
+            isBulkSyncing.value = false
+            clearLocalSelection()
+        }
+    }
+
     // --- Restore or Delete Safe Files inside folder ---
     fun restoreFromSafe(id: Int) {
         viewModelScope.launch {
@@ -1870,21 +1965,55 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     // --- Google Drive Cloud Account Controller ---
-    fun addCloudAccount(email: String) {
-        if (email.isNotBlank() && !cloudAccounts.value.contains(email)) {
-            cloudAccounts.value = cloudAccounts.value + email
+
+    fun addCloudAccount(email: String, name: String = "") {
+        if (email.isNotBlank()) {
+            val currentAccounts = cloudAccounts.value.toMutableList()
+            if (!currentAccounts.contains(email)) {
+                currentAccounts.add(email)
+                cloudAccounts.value = currentAccounts
+            }
             selectedCloudAccount.value = email
+            val finalName = if (name.isNotBlank()) name else {
+                email.substringBefore('@').replace('.', ' ')
+                    .split(' ').joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
+            }
+            selectedCloudAccountName.value = finalName
+
+            // Storing user's name and email locally
+            sharedPrefs.edit()
+                .putString("logged_in_email", email)
+                .putString("logged_in_name", finalName)
+                .putStringSet("saved_cloud_accounts", currentAccounts.toSet())
+                .apply()
         }
     }
 
     fun logoutFromCloudAccount() {
         selectedCloudAccount.value = null
+        selectedCloudAccountName.value = null
         updateGoogleDriveToken("")
+
+        sharedPrefs.edit()
+            .remove("logged_in_email")
+            .remove("logged_in_name")
+            .apply()
     }
 
     fun selectCloudAccount(email: String) {
         if (selectedCloudAccount.value != email) {
             selectedCloudAccount.value = email
+            val savedName = if (email == "sandbox_guest@gmail.com") "Demo User" else {
+                email.substringBefore('@').replace('.', ' ')
+                    .split(' ').joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
+            }
+            selectedCloudAccountName.value = savedName
+
+            sharedPrefs.edit()
+                .putString("logged_in_email", email)
+                .putString("logged_in_name", savedName)
+                .apply()
+
             // Clear API key so that user has to reconfigure or prompt for re-authentication on selecting a different drive
             geminiApiKey.value = ""
         }
