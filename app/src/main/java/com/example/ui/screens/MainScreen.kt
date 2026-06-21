@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -78,6 +79,8 @@ fun MainScreen(
     
     var showAddFileDialog by remember { mutableStateOf(false) }
     var inSafeViewMode by remember { mutableStateOf(false) }
+    var isFloatingChatOpen by remember { mutableStateOf(false) }
+    var floatingUserText by remember { mutableStateOf("") }
 
     Box(modifier = Modifier.fillMaxSize()) {
         filePreview?.let { previewFile ->
@@ -207,6 +210,260 @@ fun MainScreen(
                     showAddFileDialog = false
                 }
             )
+        }
+
+        // Floating Gemini AI Assistant Chat FAB
+        if (!inSafeViewMode && !isMultiSelect) {
+            FloatingActionButton(
+                onClick = { isFloatingChatOpen = !isFloatingChatOpen },
+                containerColor = CustomFlameOrange,
+                contentColor = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 80.dp)
+                    .testTag("fab_gemini_floating_chat"),
+                elevation = FloatingActionButtonDefaults.elevation(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SmartToy,
+                    contentDescription = "Toggle Floating AI Chat",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+
+        // Floating Chat Window/Interface Overlay
+        if (isFloatingChatOpen && !inSafeViewMode && !isMultiSelect) {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
+                border = BorderStroke(1.5.dp, CustomFlameOrange.copy(alpha = 0.3f)),
+                elevation = CardDefaults.cardElevation(12.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 148.dp)
+                    .width(320.dp)
+                    .height(440.dp)
+                    .testTag("floating_gemini_chat_box")
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Chat header with title & controls
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(
+                                        CustomFlameOrange.copy(alpha = 0.15f),
+                                        CosmicPrimary.copy(alpha = 0.15f)
+                                    )
+                                )
+                            )
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = CustomFlameOrange,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Gemini File Assistant",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                        
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { viewModel.clearDrawerChatHistory() },
+                                modifier = Modifier.size(24.dp).testTag("btn_reset_floating_chat")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Restart Chat",
+                                    tint = TextGray,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            IconButton(
+                                onClick = { isFloatingChatOpen = false },
+                                modifier = Modifier.size(24.dp).testTag("btn_close_floating_chat")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close Chat",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                    // Dialog box listing / suggestion area
+                    val chatDrawerMessages by viewModel.chatDrawerMessages.collectAsStateWithLifecycle()
+                    val isSendingDrawerToGemini by viewModel.isSendingDrawerToGemini.collectAsStateWithLifecycle()
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Quick Suggestions if chat is fresh or just started
+                        if (chatDrawerMessages.size <= 1) {
+                            item {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = "ASK ME ABOUT YOUR FILES:",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CustomFlameOrange,
+                                        letterSpacing = 0.8.sp,
+                                        modifier = Modifier.padding(start = 2.dp, bottom = 2.dp)
+                                    )
+                                    listOf(
+                                        "❓ File Breakdown" to "Can you list my local files and give me a storage breakdown?",
+                                        "🔍 Duplicate items" to "Do I have any duplicate local files that we can clean up?",
+                                        "⚡ Auto Organize" to "Can you automatically sort uncategorized files into proper folders?"
+                                    ).forEach { (label, promptText) ->
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { viewModel.sendDrawerChatMessage(promptText) },
+                                            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.04f)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.03f))
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = Color.White,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Message bubbles
+                        items(chatDrawerMessages) { msg ->
+                            val isUser = msg.isUser
+                            val bubbleColor = if (isUser) CustomFlameOrange else Color.White.copy(alpha = 0.06f)
+                            val align = if (isUser) Alignment.End else Alignment.Start
+                            val bubbleShape = if (isUser) {
+                                RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp, bottomStart = 14.dp)
+                            } else {
+                                RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp, bottomEnd = 14.dp)
+                            }
+                            
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = align
+                            ) {
+                                Card(
+                                    shape = bubbleShape,
+                                    colors = CardDefaults.cardColors(containerColor = bubbleColor),
+                                    border = if (isUser) null else BorderStroke(1.dp, Color.White.copy(alpha = 0.02f)),
+                                    modifier = Modifier.widthIn(max = 230.dp)
+                                ) {
+                                    Text(
+                                        text = msg.text,
+                                        fontSize = 11.sp,
+                                        color = Color.White,
+                                        lineHeight = 15.sp,
+                                        modifier = Modifier.padding(10.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (isSendingDrawerToGemini) {
+                            item {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = CustomFlameOrange,
+                                        modifier = Modifier.size(12.dp),
+                                        strokeWidth = 1.5.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Gemini is examining file registers...",
+                                        fontSize = 10.sp,
+                                        color = TextGray
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                    // Input Box
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = floatingUserText,
+                            onValueChange = { floatingUserText = it },
+                            placeholder = { Text("Search or organize files...", fontSize = 11.sp) },
+                            textStyle = TextStyle(fontSize = 11.sp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("input_floating_chat"),
+                            shape = RoundedCornerShape(10.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CustomFlameOrange,
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.08f),
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.02f),
+                                focusedContainerColor = Color.White.copy(alpha = 0.02f),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        IconButton(
+                            onClick = {
+                                if (floatingUserText.isNotBlank()) {
+                                    viewModel.sendDrawerChatMessage(floatingUserText)
+                                    floatingUserText = ""
+                                }
+                            },
+                            modifier = Modifier
+                                .background(CustomFlameOrange, CircleShape)
+                                .size(32.dp)
+                                .testTag("btn_send_floating_chat")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = "Send Message",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+            }
         }
 
     }
@@ -1538,12 +1795,77 @@ fun FileListSection(
                                     overflow = TextOverflow.Ellipsis,
                                     color = Color.White
                                 )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
                                     Text(
                                         text = "${file.category} • ${viewModel.formatFileSize(file.size)}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                    
+                                    val cloudBackupList by viewModel.cloudBackupMetadataList.collectAsStateWithLifecycle()
+                                    val baseCloudFilesList by viewModel.cloudFiles.collectAsStateWithLifecycle()
+                                    
+                                    val isSyncedByFolder = cloudBackupList.any { it.folderName == file.category && it.cloudService == "Google Drive" }
+                                    val isSyncedByName = baseCloudFilesList.any { it.name.equals(file.name, ignoreCase = true) }
+                                    val isSyncedWithDrive = isSyncedByFolder || isSyncedByName
+                                    
+                                    Box(
+                                        modifier = Modifier
+                                            .size(3.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                                    )
+                                    
+                                    if (isSyncedWithDrive) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(ForestEcoGreen.copy(alpha = 0.12f))
+                                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                .testTag("file_status_synced_${file.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CloudQueue,
+                                                contentDescription = "Synced with Cloud",
+                                                tint = ForestEcoGreen,
+                                                modifier = Modifier.size(10.dp)
+                                            )
+                                            Text(
+                                                text = "Synced",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ForestEcoGreen
+                                            )
+                                        }
+                                    } else {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color.White.copy(alpha = 0.05f))
+                                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                .testTag("file_status_local_${file.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Computer,
+                                                contentDescription = "Local Copy Only",
+                                                tint = TextGray,
+                                                modifier = Modifier.size(10.dp)
+                                            )
+                                            Text(
+                                                text = "Local",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = TextGray
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
@@ -2746,11 +3068,78 @@ fun UnlockedSafeFolderContents(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Text(
-                                        text = "${file.category} • ${viewModel.formatFileSize(file.size)}",
-                                        fontSize = 10.sp,
-                                        color = TextGray
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "${file.category} • ${viewModel.formatFileSize(file.size)}",
+                                            fontSize = 10.sp,
+                                            color = TextGray
+                                        )
+                                        
+                                        val cloudBackupList by viewModel.cloudBackupMetadataList.collectAsStateWithLifecycle()
+                                        val baseCloudFilesList by viewModel.cloudFiles.collectAsStateWithLifecycle()
+                                        
+                                        val isSyncedByFolder = cloudBackupList.any { it.folderName == "Safe Folder" && it.cloudService == "Google Drive" }
+                                        val isSyncedByName = baseCloudFilesList.any { it.name.equals(file.name, ignoreCase = true) }
+                                        val isSyncedWithDrive = isSyncedByFolder || isSyncedByName
+                                        
+                                        Box(
+                                            modifier = Modifier
+                                                .size(3.dp)
+                                                .clip(CircleShape)
+                                                .background(TextGray.copy(alpha = 0.4f))
+                                        )
+                                        
+                                        if (isSyncedWithDrive) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(ForestEcoGreen.copy(alpha = 0.12f))
+                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    .testTag("safe_file_status_synced_${file.id}")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CloudQueue,
+                                                    contentDescription = "Synced with Cloud",
+                                                    tint = ForestEcoGreen,
+                                                    modifier = Modifier.size(9.dp)
+                                                )
+                                                Text(
+                                                    text = "Synced",
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ForestEcoGreen
+                                                )
+                                            }
+                                        } else {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(Color.White.copy(alpha = 0.05f))
+                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    .testTag("safe_file_status_local_${file.id}")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Computer,
+                                                    contentDescription = "Local Copy Only",
+                                                    tint = TextGray,
+                                                    modifier = Modifier.size(9.dp)
+                                                )
+                                                Text(
+                                                    text = "Local",
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = TextGray
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
 
                                 // Restore and Trash controls

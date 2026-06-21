@@ -184,6 +184,63 @@ fun SyncSettingsScreen(
                     )
                 }
 
+                // 2.5 NETWORK RESTRICTIONS CONFIGURATION
+                item {
+                    val simulateWifiOnlySync by viewModel.simulateWifiOnlySync.collectAsStateWithLifecycle()
+                    
+                    Text(
+                        text = "NETWORK & BANDWIDTH OPTIONS",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = CustomFlameOrange,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                    )
+                    Card(
+                        modifier = Modifier.fillMaxWidth().testTag("wifi_only_card"),
+                        colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Wifi,
+                                        contentDescription = null,
+                                        tint = CustomFlameOrange,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Wi-Fi Only Syncing",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Restricts automated sync transfers to Wi-Fi to prevent unintended carrier data fee liabilities.",
+                                    fontSize = 11.sp,
+                                    color = TextGray
+                                )
+                            }
+                            Switch(
+                                checked = simulateWifiOnlySync,
+                                onCheckedChange = { viewModel.simulateWifiOnlySync.value = it },
+                                modifier = Modifier.testTag("switch_wifi_sync_settings")
+                            )
+                        }
+                    }
+                }
+
                 // 4. TRIGGER BACKUP UTILITY
                 item {
                     Button(
@@ -219,37 +276,120 @@ fun SyncSettingsScreen(
                     if (isFolderSyncActive) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Card(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().testTag("realtime_sync_progress_card"),
                             colors = CardDefaults.cardColors(containerColor = DeepSurfaceDark),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, CustomFlameOrange.copy(alpha = 0.2f))
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.5.dp, CustomFlameOrange.copy(alpha = 0.4f))
                         ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    CircularProgressIndicator(
-                                        progress = { folderSyncProgress },
-                                        modifier = Modifier.size(20.dp),
-                                        color = CustomFlameOrange,
-                                        strokeWidth = 2.dp
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
+                            Column(
+                                modifier = Modifier.padding(18.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Sync,
+                                            contentDescription = null,
+                                            tint = CustomFlameOrange,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Sync Protocol Active",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = Color.White
+                                        )
+                                    }
                                     Text(
-                                        text = folderSyncProgressText,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White
+                                        text = "${(folderSyncProgress * 100).toInt()}%",
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 13.sp,
+                                        color = CustomFlameOrange
                                     )
                                 }
-                                Spacer(modifier = Modifier.height(10.dp))
-                                LinearProgressIndicator(
-                                    progress = { folderSyncProgress },
-                                    color = CustomFlameOrange,
-                                    trackColor = Color.White.copy(alpha = 0.05f),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(5.dp)
-                                        .clip(CircleShape)
+                                
+                                Spacer(modifier = Modifier.height(20.dp))
+                                
+                                // Beautiful Central Circular Progress overlay
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.size(90.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        progress = { folderSyncProgress },
+                                        modifier = Modifier.fillMaxSize().testTag("sync_progress_circular_indicator"),
+                                        color = CustomFlameOrange,
+                                        trackColor = Color.White.copy(alpha = 0.08f),
+                                        strokeWidth = 6.dp,
+                                        strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+                                    )
+                                    
+                                    // Simulated upload speed inside circle
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = "${(3.7 + (folderSyncProgress * 4.2)).toBigDecimal().setScale(1, java.math.RoundingMode.HALF_UP)} MB/s",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Upload",
+                                            fontSize = 8.sp,
+                                            color = TextGray
+                                        )
+                                    }
+                                }
+                                
+                                Spacer(modifier = Modifier.height(20.dp))
+                                
+                                // Current state text
+                                Text(
+                                    text = folderSyncProgressText,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth().testTag("sync_progress_text_label")
                                 )
+                                
+                                Spacer(modifier = Modifier.height(14.dp))
+                                
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                
+                                Spacer(modifier = Modifier.height(10.dp))
+                                
+                                // Two Column metadata metrics
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Transferred", fontSize = 10.sp, color = TextGray)
+                                        Text(
+                                            text = "${(folderSyncProgress * 28.5).toBigDecimal().setScale(1, java.math.RoundingMode.HALF_UP)} MB",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier.width(1.dp).height(24.dp).background(Color.White.copy(alpha = 0.05f))
+                                    )
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Selected Folders", fontSize = 10.sp, color = TextGray)
+                                        Text(
+                                            text = "${selectedFolders.size} active",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

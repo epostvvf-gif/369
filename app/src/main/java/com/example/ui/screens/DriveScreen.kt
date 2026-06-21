@@ -214,7 +214,8 @@ fun DriveScreen(
                                     CloudBatchActionsBar(
                                         selectedCount = selectedCloudFileIds.size,
                                         onClearSelection = { viewModel.selectedCloudFileIds.value = emptySet() },
-                                        onDeleteSelected = { viewModel.deleteSelectedCloudFiles() }
+                                        onDeleteSelected = { viewModel.deleteSelectedCloudFiles() },
+                                        onRestoreSelected = { viewModel.downloadAndOverwriteCloudSelection(selectedCloudFileIds) }
                                     )
                                 }
 
@@ -1639,7 +1640,8 @@ fun CloudSearchBar(
 fun CloudBatchActionsBar(
     selectedCount: Int,
     onClearSelection: () -> Unit,
-    onDeleteSelected: () -> Unit
+    onDeleteSelected: () -> Unit,
+    onRestoreSelected: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -1662,8 +1664,16 @@ fun CloudBatchActionsBar(
                 Text("$selectedCount Cloud Files Selected", fontWeight = FontWeight.Bold)
             }
 
-            IconButton(onClick = onDeleteSelected, modifier = Modifier.testTag("btn_delete_cloud_batch")) {
-                Icon(Icons.Default.Delete, "Delete selected cloud", tint = MaterialTheme.colorScheme.error)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onRestoreSelected, modifier = Modifier.testTag("btn_restore_cloud_batch")) {
+                    Icon(Icons.Default.CloudDownload, "Download and Overwrite Local Version", tint = AquaticWaveBlue)
+                }
+                
+                Spacer(modifier = Modifier.width(4.dp))
+
+                IconButton(onClick = onDeleteSelected, modifier = Modifier.testTag("btn_delete_cloud_batch")) {
+                    Icon(Icons.Default.Delete, "Delete selected cloud", tint = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }

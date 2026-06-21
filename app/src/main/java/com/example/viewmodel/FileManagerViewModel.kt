@@ -9,6 +9,7 @@ import com.example.api.Part
 import com.example.data.AppDatabase
 import com.example.data.FileEntity
 import com.example.data.FileRepository
+import com.example.service.CloudSyncManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -283,6 +284,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     val lastFolderSyncTime = MutableStateFlow<Long?>(null)
     val folderSyncError = MutableStateFlow<String?>(null)
     
+    // Cloud sync manager instance
+    val cloudSyncManager = CloudSyncManager()
+
     // In-memory list of synced backups in the cloud
     val cloudBackupMetadataList = MutableStateFlow<List<CloudBackupItem>>(emptyList())
 
@@ -308,6 +312,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 }
                 
                 val service = selectedCloudSyncService.value
+                val isWifiOnly = simulateWifiOnlySync.value
                 val updatedBackupList = cloudBackupMetadataList.value.toMutableList()
                 
                 // Get normal files and safe files
@@ -316,48 +321,36 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 
                 val totalSteps = foldersToSync.size
                 foldersToSync.forEachIndexed { index, folder ->
-                    folderSyncProgressText.value = "Scanning local inodes for '$folder'..."
-                    delay(400)
+                    val isSafeFolder = folder == "Safe Folder"
+                    val isSafeUnlockedValue = isSafeUnlocked.value
                     
-                    val filteredFiles = if (folder == "Safe Folder") {
-                        safes
-                    } else {
-                        files.filter { it.category == folder }
+                    // Enforce PIN check for Safe Folder before syncing
+                    if (isSafeFolder && !isSafeUnlockedValue) {
+                        throw IllegalStateException("Safe Folder is currently locked. Verification PIN must be entered sequence-mandated prior to upload.")
                     }
                     
-                    val fileCount = filteredFiles.size
-                    val totalSize = filteredFiles.sumOf { it.size }
+                    folderSyncProgressText.value = "Initiating handshake for '$folder' over network..."
+                    val filteredFiles = if (isSafeFolder) safes else files.filter { it.category == folder }
                     
                     val stepMultiplier = 1f / totalSteps.toFloat()
                     val baseProgress = index * stepMultiplier
                     
-                    if (folder == "Safe Folder") {
-                        folderSyncProgressText.value = "Enforcing PIN Decryption wrap on Vault files..."
-                        for (p in 1..5) {
-                            folderSyncProgress.value = baseProgress + (p / 10f) * stepMultiplier
-                            delay(200)
+                    val result = cloudSyncManager.performSync(
+                        providerName = service,
+                        folderName = folder,
+                        files = filteredFiles,
+                        isSafeFolder = isSafeFolder,
+                        isSafeUnlocked = isSafeUnlockedValue,
+                        isWifiOnly = isWifiOnly,
+                        onProgress = { progress, text ->
+                            folderSyncProgress.value = baseProgress + (progress * stepMultiplier)
+                            folderSyncProgressText.value = text
                         }
-                    } else {
-                        folderSyncProgressText.value = "Uploading items in '$folder' (0/$fileCount)..."
-                        for (p in 1..4) {
-                            folderSyncProgress.value = baseProgress + (p / 8f) * stepMultiplier
-                            delay(150)
-                        }
-                    }
+                    )
                     
                     val backupId = "backup_${folder.lowercase().replace(" ", "_")}_${service.lowercase().replace(" ", "_")}"
                     updatedBackupList.removeAll { it.id == backupId }
-                    updatedBackupList.add(
-                        CloudBackupItem(
-                            id = backupId,
-                            folderName = folder,
-                            fileCount = fileCount,
-                            totalSizeBytes = totalSize,
-                            backupTime = System.currentTimeMillis(),
-                            cloudService = service,
-                            isEncryptedSafeFolder = folder == "Safe Folder"
-                        )
-                    )
+                    updatedBackupList.add(result)
                 }
                 
                 folderSyncProgressText.value = "Rebuilding secure container mapping indexes..."
@@ -383,31 +376,157 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             restoreProgress.value = 0f
             
             try {
+                // Check Safe Folder PIN if restoring Safe Folder
+                if (backupItem.isEncryptedSafeFolder && !isSafeUnlocked.value) {
+                    throw IllegalStateException("Safe Folder PIN authentication required to restore encrypted payload.")
+                }
+                
                 restoreProgressText.value = "Connecting to ${backupItem.cloudService} secure enclave..."
                 delay(400)
                 
-                val steps = 5
+                val steps = 4
                 for (i in 1..steps) {
                     restoreProgressText.value = "Downloading chunk ${i}/$steps..."
-                    restoreProgress.value = (i.toFloat() / steps.toFloat()) * 0.8f
+                    restoreProgress.value = (i.toFloat() / steps.toFloat()) * 0.7f
                     delay(200)
                 }
                 
                 restoreProgressText.value = "Verifying package integrity signatures..."
                 delay(300)
                 
-                if (backupItem.isEncryptedSafeFolder) {
-                    restoreProgressText.value = "Validating Vault PIN handshake mapping..."
-                    delay(350)
+                // Perform real restoration overwriting local files matching backup
+                val service = backupItem.cloudService
+                val folder = backupItem.folderName
+                
+                restoreProgressText.value = "Writing catalog to local system partition..."
+                
+                // Get cloud files representing items of this folder to overwrite local files
+                val matchedCloudFiles = baseCloudFiles.value.filter {
+                    val cat = when {
+                        it.name.endsWith(".pdf", true) || it.name.endsWith(".doc", true) || it.name.endsWith(".txt", true) -> "Documents"
+                        it.name.endsWith(".png", true) || it.name.endsWith(".jpg", true) || it.name.endsWith(".jpeg", true) -> "Images"
+                        it.name.endsWith(".mp3", true) || it.name.endsWith(".wav", true) -> "Audio"
+                        it.name.endsWith(".mp4", true) || it.name.endsWith(".avi", true) -> "Videos"
+                        else -> "Others"
+                    }
+                    cat == folder || (folder == "Safe Folder" && cat == "Others") // Safe files are mapped to Safe Folder
+                }
+                
+                if (matchedCloudFiles.isNotEmpty()) {
+                    matchedCloudFiles.forEachIndexed { idx, cloudFile ->
+                        val localMatch = repository.allFiles.first().find { it.name.equals(cloudFile.name, ignoreCase = true) }
+                        
+                        val fileToSave = FileEntity(
+                            id = localMatch?.id ?: 0,
+                            name = cloudFile.name,
+                            path = localMatch?.path ?: "/storage/emulated/0/${folder}/${cloudFile.name}",
+                            mimeType = localMatch?.mimeType ?: "application/octet-stream",
+                            size = cloudFile.size,
+                            isSafe = backupItem.isEncryptedSafeFolder,
+                            isJunk = false,
+                            category = if (backupItem.isEncryptedSafeFolder) "Documents" else folder,
+                            timestamp = System.currentTimeMillis()
+                        )
+                        repository.insertFile(fileToSave)
+                    }
+                } else if (backupItem.fileCount > 0) {
+                    // Overwrite/insert default simulated folder entries if current list was empty
+                    for (i in 1..backupItem.fileCount) {
+                        val suffix = when (folder) {
+                            "Documents" -> ".pdf"
+                            "Images" -> ".jpg"
+                            "Audio" -> ".wav"
+                            "Videos" -> ".mp4"
+                            else -> ".dat"
+                        }
+                        val fileName = "Restored_Node_${i}${suffix}"
+                        val localMatch = repository.allFiles.first().find { it.name.equals(fileName, ignoreCase = true) }
+                        
+                        val fileToSave = FileEntity(
+                            id = localMatch?.id ?: 0,
+                            name = fileName,
+                            path = "/storage/emulated/0/${folder}/${fileName}",
+                            mimeType = "application/octet-stream",
+                            size = 1024L * 1024L * i,
+                            isSafe = backupItem.isEncryptedSafeFolder,
+                            isJunk = false,
+                            category = if (backupItem.isEncryptedSafeFolder) "Documents" else folder,
+                            timestamp = System.currentTimeMillis()
+                        )
+                        repository.insertFile(fileToSave)
+                    }
                 }
                 
                 restoreProgress.value = 1f
                 restoreProgressText.value = "Reconstructing folder entries in storage partition..."
-                delay(300)
+                delay(400)
                 
                 restoreSuccessMessage.value = "Successfully restored ${backupItem.fileCount} items in '${backupItem.folderName}' folder from ${backupItem.cloudService}."
             } catch (e: Exception) {
                 restoreErrorMessage.value = "Network timeout restoring file segments: ${e.localizedMessage}"
+            } finally {
+                isRestoreActive.value = false
+            }
+        }
+    }
+
+    fun downloadAndOverwriteCloudSelection(idList: Set<String>) {
+        if (idList.isEmpty()) return
+        viewModelScope.launch {
+            isRestoreActive.value = true
+            restoreProgress.value = 0f
+            restoreSuccessMessage.value = null
+            restoreErrorMessage.value = null
+            
+            try {
+                val cloudSubset = baseCloudFiles.value.filter { it.id in idList }
+                if (cloudSubset.isEmpty()) {
+                    restoreErrorMessage.value = "Selected cloud files not in active provider register."
+                    return@launch
+                }
+                
+                val total = cloudSubset.size
+                cloudSubset.forEachIndexed { index, cloudFile ->
+                    val progressBase = index.toFloat() / total.toFloat()
+                    restoreProgressText.value = "Downloading & Overwriting '${cloudFile.name}'..."
+                    
+                    for (step in 1..4) {
+                        restoreProgress.value = progressBase + (step / 4f) * (1f / total.toFloat())
+                        delay(150)
+                    }
+                    
+                    val localMatch = repository.allFiles.first().find { it.name.equals(cloudFile.name, ignoreCase = true) }
+                    
+                    val category = when {
+                        cloudFile.name.endsWith(".pdf", true) || cloudFile.name.endsWith(".doc", true) || cloudFile.name.endsWith(".txt", true) -> "Documents"
+                        cloudFile.name.endsWith(".png", true) || cloudFile.name.endsWith(".jpg", true) || cloudFile.name.endsWith(".jpeg", true) -> "Images"
+                        cloudFile.name.endsWith(".mp3", true) || cloudFile.name.endsWith(".wav", true) -> "Audio"
+                        cloudFile.name.endsWith(".mp4", true) || cloudFile.name.endsWith(".avi", true) -> "Videos"
+                        else -> "Others"
+                    }
+                    
+                    val fileToSave = FileEntity(
+                        id = localMatch?.id ?: 0,
+                        name = cloudFile.name,
+                        path = localMatch?.path ?: "/storage/emulated/0/${category}/${cloudFile.name}",
+                        mimeType = localMatch?.mimeType ?: "application/octet-stream",
+                        size = cloudFile.size,
+                        isSafe = localMatch?.isSafe ?: false,
+                        isJunk = false,
+                        category = category,
+                        timestamp = System.currentTimeMillis()
+                    )
+                    
+                    repository.insertFile(fileToSave)
+                }
+                
+                restoreProgress.value = 1f
+                restoreProgressText.value = "Successfully overwritten local directory indices!"
+                delay(300)
+                restoreSuccessMessage.value = "Successfully downloaded and overwritten $total selected files from chosen provider."
+                selectedCloudFileIds.value = emptySet()
+            } catch (e: Exception) {
+                restoreErrorMessage.value = "Overwrite execution broke during package assembly: ${e.localizedMessage}"
             } finally {
                 isRestoreActive.value = false
             }
