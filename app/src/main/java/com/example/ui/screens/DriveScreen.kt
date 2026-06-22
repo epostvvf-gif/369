@@ -773,7 +773,7 @@ fun LiveGoogleDriveConnectionCard(
                             color = Color.White
                         )
                         Text(
-                            text = if (accessToken.isNotBlank()) "OAuth Access Token authenticated" else "Sandbox emulation",
+                            text = if (accessToken.isNotBlank()) "OAuth Access Token authenticated" else "Auth token configuration required",
                             fontSize = 10.sp,
                             color = TextGray
                         )

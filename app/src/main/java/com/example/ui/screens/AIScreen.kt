@@ -215,9 +215,9 @@ fun AIScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = if (useHighThinking) {
-                                        "Active Engine: models/gemini-3.1-pro-preview (ThinkingLevel: HIGH)"
+                                        "Active Engine: models/gemini-1.5-pro (ThinkingLevel: HIGH)"
                                     } else {
-                                        "Active Engine: models/gemini-3.5-flash (Rapid Velocity Mode)"
+                                        "Active Engine: models/gemini-2.0-flash (Rapid Velocity Mode)"
                                     },
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,

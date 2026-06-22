@@ -882,13 +882,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun initializeCloudFiles() {
-        baseCloudFiles.value = listOf(
-            CloudFile("c1", "Cloud_Vishwa_Brochure_M3.pdf", 4890000, System.currentTimeMillis() - 86400000 * 2, isSynced = true),
-            CloudFile("c2", "Donor_List_2026_Seeded.xlsx", 1250000, System.currentTimeMillis() - 86400000 * 12, isSynced = false),
-            CloudFile("c3", "Trustee_Resolutions_Signed.pdf", 5600000, System.currentTimeMillis() - 86400000 * 1, isSynced = true),
-            CloudFile("c4", "Foundation_Theme_Chants_Chords.wav", 45200000, System.currentTimeMillis() - 86400000 * 5, isSynced = false),
-            CloudFile("c5", "unauthorized_unused_duplicate.pdf", 5600000, System.currentTimeMillis() - 86400000 * 8, isSynced = false) // Identical size warning
-        )
+        baseCloudFiles.value = emptyList()
     }
 
     // --- Search with Custom Match Percentage scoring calculation ---
@@ -2139,9 +2133,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 cloudScanProgress.value = i * 0.1f
             }
 
-            // Once complete, calculate matching semantic score (random/heuristic correlation on trust categories)
+            // Once complete, calculate matching semantic score using true mathematical Jaccard Index token similarity
             baseCloudFiles.value = baseCloudFiles.value.map { file ->
-                val calculatedScore = computeSimulatedSemanticPercent(file.name)
+                val calculatedScore = computeTokenJaccardSemanticPercent(file.name)
                 file.copy(semanticScore = calculatedScore)
             }
 
@@ -2149,17 +2143,37 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    private fun computeSimulatedSemanticPercent(fileName: String): Int {
-        // High scores given to Vishwa/Trustee files based on semantic theme
-        val clean = fileName.lowercase()
-        return when {
-            clean.contains("vishwa") -> 95 + (fileName.length % 5)
-            clean.contains("trustee") -> 88 + (fileName.length % 8)
-            clean.contains("donor") -> 85 + (fileName.length % 7)
-            clean.contains("chords") || clean.contains("chants") -> 74 + (fileName.length % 6)
-            clean.contains("unauthorized") || clean.contains("copy") -> 12 + (fileName.length % 5)
-            else -> 45 + (fileName.length % 20)
+    private fun computeTokenJaccardSemanticPercent(fileName: String): Int {
+        val cloudTokens = fileName.lowercase().split(Regex("\\W+")).filter { it.isNotBlank() }.toSet()
+        if (cloudTokens.isEmpty()) return 20 // baseline minimum
+        
+        var maxSimilarity = 0.0
+        val currentLocalFiles = normalFiles.value
+        
+        if (currentLocalFiles.isEmpty()) {
+            // Legitimate reference standards for file managers
+            val referenceKeywords = listOf("document", "report", "photo", "image", "backup", "invoice", "receipt", "audio", "video")
+            for (ref in referenceKeywords) {
+                val refTokens = ref.lowercase().split(Regex("\\W+")).toSet()
+                val intersection = cloudTokens.intersect(refTokens).size.toDouble()
+                val union = cloudTokens.union(refTokens).size.toDouble()
+                val sim = if (union > 0) intersection / union else 0.0
+                if (sim > maxSimilarity) maxSimilarity = sim
+            }
+        } else {
+            // Dynamic actual comparison with on-device SQLite assets
+            for (localFile in currentLocalFiles) {
+                val localTokens = localFile.name.lowercase().split(Regex("\\W+")).filter { it.isNotBlank() }.toSet()
+                val intersection = cloudTokens.intersect(localTokens).size.toDouble()
+                val union = cloudTokens.union(localTokens).size.toDouble()
+                val sim = if (union > 0) intersection / union else 0.0
+                if (sim > maxSimilarity) maxSimilarity = sim
+            }
         }
+        
+        // Map 0.0 - 1.0 similarity to 20% - 100% percentage scaling
+        val percentage = (maxSimilarity * 80).toInt() + 20
+        return percentage.coerceIn(20, 100)
     }
 
     // --- Chat Interface with Message State Persistence ---
