@@ -1,5 +1,5 @@
 {
-  "name": "Smart File & Cloud",
+  "name": "VVF File Manager Ultra",
   "description": "A secure, Material 3-styled file manager, duplicate file finder, local junk cleaner, private PIN safe folder, Google Drive simulator, and fully integrated Gemini AI assistant with high-thinking power.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

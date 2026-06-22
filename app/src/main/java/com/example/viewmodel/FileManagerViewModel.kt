@@ -2255,7 +2255,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         return """
-            You are the "Smart File & Cloud Manager" AI Assistant.
+            You are the "VVF File Manager Ultra AI Assistant".
             
             Current Local Storage Context:
             - Normal Files Listed:

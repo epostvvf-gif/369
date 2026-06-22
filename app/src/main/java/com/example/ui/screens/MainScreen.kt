@@ -38,6 +38,9 @@ import com.example.GlobalProfileAvatarButton
 import com.example.viewmodel.PinMode
 import com.example.viewmodel.JunkItem
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.Date
@@ -83,6 +86,7 @@ fun MainScreen(
     var showAddFileDialog by remember { mutableStateOf(false) }
     var inSafeViewMode by remember { mutableStateOf(false) }
     var isFloatingChatOpen by remember { mutableStateOf(false) }
+    var isBottomSheetChatOpen by remember { mutableStateOf(false) }
     var floatingUserText by remember { mutableStateOf("") }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -263,7 +267,7 @@ fun MainScreen(
         // Floating Gemini AI Assistant Chat FAB
         if (!inSafeViewMode && !isMultiSelect) {
             FloatingActionButton(
-                onClick = { isFloatingChatOpen = !isFloatingChatOpen },
+                onClick = { isBottomSheetChatOpen = true },
                 containerColor = CustomFlameOrange,
                 contentColor = Color.White,
                 modifier = Modifier
@@ -514,6 +518,12 @@ fun MainScreen(
             }
         }
 
+        if (isBottomSheetChatOpen) {
+            GeminiBottomSheetChat(
+                viewModel = viewModel,
+                onDismiss = { isBottomSheetChatOpen = false }
+            )
+        }
     }
 }
 
@@ -1521,6 +1531,69 @@ fun FileListSection(
     val folderMetadata by viewModel.getFolderCategoriesStream().collectAsStateWithLifecycle(emptyList())
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
 
+    var explorerPathSegments by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    LaunchedEffect(selectedFolder) {
+        if (selectedFolder == null) {
+            explorerPathSegments = emptyList()
+        } else if (explorerPathSegments.isEmpty() || explorerPathSegments.first() != selectedFolder) {
+            explorerPathSegments = listOf(selectedFolder!!)
+        }
+    }
+
+    val setExplorerPath = { newPath: List<String> ->
+        explorerPathSegments = newPath
+        if (newPath.isEmpty()) {
+            viewModel.explorerSelectedFolder.value = null
+        } else {
+            viewModel.explorerSelectedFolder.value = newPath.first()
+        }
+    }
+
+    val relativeSegmentsOf = { file: FileEntity ->
+        val segments = file.path.split("/").map { it.trim() }.filter { it.isNotEmpty() }
+        val catIndex = segments.indexOfFirst { it.equals(file.category, ignoreCase = true) }
+        val segsList = if (catIndex != -1 && catIndex < segments.size - 1) {
+            segments.subList(catIndex + 1, segments.size - 1)
+        } else if (segments.size > 1) {
+            listOf(segments[segments.size - 2])
+        } else {
+            emptyList()
+        }
+        segsList
+    }
+
+    val currentPathSegments = explorerPathSegments
+    val (currentSubfolders, filesInCurrentDir) = remember(searchResults, currentPathSegments) {
+        if (currentPathSegments.isEmpty()) {
+            Pair(emptyList<String>(), emptyList<Pair<FileEntity, Double>>())
+        } else {
+            val category = currentPathSegments.first()
+            val subQuery = currentPathSegments.drop(1)
+            
+            val catFiles = searchResults.filter {
+                it.first.category.equals(category, ignoreCase = true)
+            }
+            
+            val dirs = mutableSetOf<String>()
+            val files = mutableListOf<Pair<FileEntity, Double>>()
+            
+            for (pair in catFiles) {
+                val file = pair.first
+                val rel = relativeSegmentsOf(file)
+                
+                if (rel.size > subQuery.size) {
+                    if (rel.subList(0, subQuery.size) == subQuery) {
+                        dirs.add(rel[subQuery.size])
+                    }
+                } else if (rel == subQuery) {
+                    files.add(pair)
+                }
+            }
+            Pair(dirs.toList().sortedBy { it }, files)
+        }
+    }
+
     Column(modifier = modifier.fillMaxWidth()) {
         // Mode switch row: Folders vs Flat files List
         Row(
@@ -1640,8 +1713,8 @@ fun FileListSection(
             }
         }
 
-        // Selected breadcrumb trail when drilled down
-        if (explorerMode == "Folders" && selectedFolder != null) {
+        // Beautiful multi-level responsive breadcrumbs trail with home arrow!
+        if (explorerMode == "Folders" && explorerPathSegments.isNotEmpty()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1652,7 +1725,7 @@ fun FileListSection(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = { viewModel.explorerSelectedFolder.value = null },
+                    onClick = { setExplorerPath(emptyList()) },
                     modifier = Modifier.size(28.dp).testTag("explorer_back_to_root")
                 ) {
                     Icon(
@@ -1667,19 +1740,27 @@ fun FileListSection(
                     text = "Root",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.clickable { viewModel.explorerSelectedFolder.value = null }
+                    modifier = Modifier.clickable { setExplorerPath(emptyList()) }.testTag("breadcrumb_root")
                 )
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = selectedFolder ?: "",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                    color = CustomFlameOrange
-                )
+
+                explorerPathSegments.forEachIndexed { index, name ->
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = if (index == explorerPathSegments.lastIndex) FontWeight.Bold else FontWeight.Normal
+                        ),
+                        color = if (index == explorerPathSegments.lastIndex) CustomFlameOrange else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .clickable { setExplorerPath(explorerPathSegments.subList(0, index + 1)) }
+                            .testTag("breadcrumb_segment_${name.lowercase()}")
+                    )
+                }
             }
         }
 
@@ -1691,7 +1772,7 @@ fun FileListSection(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // If in Folders mode and no folder category is selected -> Show the gorgeous virtual folders grid (only when search query is empty)
-            if (explorerMode == "Folders" && selectedFolder == null && searchQuery.isBlank()) {
+            if (explorerMode == "Folders" && explorerPathSegments.isEmpty() && searchQuery.isBlank()) {
                 item {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -1722,7 +1803,7 @@ fun FileListSection(
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { viewModel.explorerSelectedFolder.value = folder.name }
+                            .clickable { setExplorerPath(listOf(folder.name)) }
                             .testTag("folder_card_${folder.name.lowercase()}"),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
@@ -1774,8 +1855,299 @@ fun FileListSection(
                         }
                     }
                 }
+            } else if (explorerMode == "Folders" && explorerPathSegments.isNotEmpty() && searchQuery.isBlank()) {
+                // FOLDERS PATH SUBDIRECTORIES (FIRST DRILL DOWN)
+                if (currentSubfolders.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Folders on Path",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                        )
+                    }
+
+                    items(currentSubfolders) { subfolderName ->
+                        val topFolder = explorerPathSegments.first()
+                        val folderColor = when (topFolder) {
+                            "Documents" -> AquaticWaveBlue
+                            "Images" -> CustomFlameOrange
+                            "Audio" -> ForestEcoGreen
+                            "Videos" -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.outline
+                        }
+
+                        // Compute subfolder stats
+                        val subQuery = explorerPathSegments.drop(1) + subfolderName
+                        val matchingFiles = searchResults.filter { pair ->
+                            val f = pair.first
+                            f.category.equals(topFolder, ignoreCase = true) &&
+                            let {
+                                val rel = relativeSegmentsOf(f)
+                                rel.size >= subQuery.size && rel.subList(0, subQuery.size) == subQuery
+                            }
+                        }
+                        val filesCount = matchingFiles.size
+                        val totalSize = matchingFiles.sumOf { it.first.size }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { setExplorerPath(explorerPathSegments + subfolderName) }
+                                .testTag("subfolder_card_${subfolderName.lowercase()}"),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, folderColor.copy(alpha = 0.12f))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .padding(12.dp)
+                                    .fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(folderColor.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Folder,
+                                        contentDescription = "Folder $subfolderName",
+                                        tint = folderColor,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = subfolderName,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = "$filesCount files • ${viewModel.formatFileSize(totalSize)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = "Enter directory",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // DRILL DOWN FILES CONTENT IN CURRENT SUBDIR
+                item {
+                    Text(
+                        text = "${explorerPathSegments.last()} Content",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                    )
+                }
+
+                if (filesInCurrentDir.isEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(40.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Directory is empty.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
+                }
+
+                items(filesInCurrentDir, key = { it.first.id }) { (file, matchScore) ->
+                    val isSelected = selectedIds.contains(file.id)
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onLongClick = {
+                                    if (!isMultiSelect) {
+                                        onToggleSelectMode()
+                                        onToggleFile(file)
+                                    }
+                                },
+                                onClick = {
+                                    if (isMultiSelect) {
+                                        onToggleFile(file)
+                                    } else {
+                                        viewModel.showLocalFilePreview(file)
+                                    }
+                                }
+                            )
+                            .testTag("file_row_card_${file.id}"),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) {
+                                MaterialTheme.colorScheme.secondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                            }
+                        ),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .padding(12.dp)
+                                .fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isMultiSelect) {
+                                Checkbox(
+                                    checked = isSelected,
+                                    onCheckedChange = { onToggleFile(file) },
+                                    modifier = Modifier.testTag("checkbox_${file.id}")
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                            }
+
+                            // Dynamic high-fidelity colors based on actual file type extension!
+                            val (fileIcon, fileColor) = getFileIconAndColor(file.name, file.category)
+
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(fileColor.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = fileIcon,
+                                    contentDescription = file.category,
+                                    tint = fileColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = file.name,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = Color.White
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "${file.category} • ${viewModel.formatFileSize(file.size)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    
+                                    val cloudBackupList by viewModel.cloudBackupMetadataList.collectAsStateWithLifecycle()
+                                    val baseCloudFilesList by viewModel.cloudFiles.collectAsStateWithLifecycle()
+                                    
+                                    val isSyncedByFolder = cloudBackupList.any { it.folderName == file.category && it.cloudService == "Google Drive" }
+                                    val isSyncedByName = baseCloudFilesList.any { it.name.equals(file.name, ignoreCase = true) }
+                                    val isSyncedWithDrive = isSyncedByFolder || isSyncedByName
+                                    
+                                    Box(
+                                        modifier = Modifier
+                                            .size(3.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                                    )
+                                    
+                                    if (isSyncedWithDrive) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(ForestEcoGreen.copy(alpha = 0.12f))
+                                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                .testTag("file_status_synced_${file.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CloudQueue,
+                                                contentDescription = "Synced with Cloud",
+                                                tint = ForestEcoGreen,
+                                                modifier = Modifier.size(10.dp)
+                                            )
+                                            Text(
+                                                text = "Synced",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ForestEcoGreen
+                                            )
+                                        }
+                                    } else {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color.White.copy(alpha = 0.05f))
+                                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                .testTag("file_status_local_${file.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Computer,
+                                                contentDescription = "Local Copy Only",
+                                                tint = TextGray,
+                                                modifier = Modifier.size(10.dp)
+                                            )
+                                            Text(
+                                                text = "Local",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = TextGray
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Trash icon for quick single file delete
+                            if (!isMultiSelect) {
+                                IconButton(onClick = { viewModel.deleteLocalFileDirectly(file.id) }) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Delete File",
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
-                // List the matched files (scoped inside category if appropriate)
+                // List the matched files (Flat list or search queries)
                 item {
                     Row(
                         modifier = Modifier
@@ -1784,7 +2156,7 @@ fun FileListSection(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = if (explorerMode == "Folders") "$selectedFolder Contents" else "All Shared Files",
+                            text = if (explorerMode == "Folders") "${selectedFolder ?: "Root"} Contents" else "All Shared Files",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1868,32 +2240,19 @@ fun FileListSection(
                             }
 
                             // Circular icon based on type
-                            val categoryIcon = when (file.category) {
-                                "Documents" -> Icons.Default.Description
-                                "Images" -> Icons.Default.Image
-                                "Audio" -> Icons.Default.VolumeUp
-                                "Videos" -> Icons.Default.Videocam
-                                else -> Icons.Default.InsertDriveFile
-                            }
-                            val categoryColor = when (file.category) {
-                                "Documents" -> AquaticWaveBlue
-                                "Images" -> CustomFlameOrange
-                                "Audio" -> ForestEcoGreen
-                                "Videos" -> MaterialTheme.colorScheme.primary
-                                else -> MaterialTheme.colorScheme.outline
-                            }
+                            val (fileIcon, fileColor) = getFileIconAndColor(file.name, file.category)
 
                             Box(
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clip(CircleShape)
-                                    .background(categoryColor.copy(alpha = 0.15f)),
+                                    .background(fileColor.copy(alpha = 0.15f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = categoryIcon,
+                                    imageVector = fileIcon,
                                     contentDescription = file.category,
-                                    tint = categoryColor,
+                                    tint = fileColor,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -2013,6 +2372,31 @@ fun FileListSection(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun getFileIconAndColor(fileName: String, category: String): Pair<androidx.compose.ui.graphics.vector.ImageVector, Color> {
+    val ext = fileName.substringAfterLast('.', "").lowercase()
+    return when (ext) {
+        "pdf" -> Icons.Default.Description to Color(0xFFEF476F)
+        "doc", "docx", "txt" -> Icons.Default.Description to Color(0xFF118AB2)
+        "xls", "xlsx", "csv" -> Icons.Default.Description to Color(0xFF06D6A0)
+        "ppt", "pptx" -> Icons.Default.Description to Color(0xFFFFD166)
+        "zip", "rar", "tar", "gz" -> Icons.Default.FolderOpen to Color(0xFF607D8B)
+        "kt", "java", "py", "js", "html", "css", "json", "xml" -> Icons.Default.Description to Color(0xFF8338EC)
+        "png", "jpg", "jpeg", "gif", "webp" -> Icons.Default.Image to Color(0xFFFF006E)
+        "mp3", "wav", "flac" -> Icons.Default.VolumeUp to Color(0xFF00F5D4)
+        "mp4", "mkv", "avi" -> Icons.Default.Videocam to Color(0xFF70E000)
+        else -> {
+            when (category) {
+                "Documents" -> Icons.Default.Description to AquaticWaveBlue
+                "Images" -> Icons.Default.Image to CustomFlameOrange
+                "Audio" -> Icons.Default.VolumeUp to ForestEcoGreen
+                "Videos" -> Icons.Default.Videocam to MaterialTheme.colorScheme.primary
+                else -> Icons.Default.FolderOpen to MaterialTheme.colorScheme.outline
             }
         }
     }
@@ -3642,6 +4026,303 @@ fun AddMockFileDialog(
                     ) {
                         Text("Create", fontWeight = FontWeight.Bold)
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GeminiBottomSheetChat(
+    viewModel: FileManagerViewModel,
+    onDismiss: () -> Unit
+) {
+    val messages by viewModel.chatDrawerMessages.collectAsStateWithLifecycle()
+    val isSending by viewModel.isSendingDrawerToGemini.collectAsStateWithLifecycle()
+    
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
+        containerColor = DeepSurfaceDark,
+        contentColor = Color.White,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Color.Gray.copy(alpha = 0.5f)) },
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        modifier = Modifier.testTag("gemini_bottom_sheet_chat")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f)
+                .navigationBarsPadding()
+                .padding(bottom = 16.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "AI Star",
+                        tint = CustomFlameOrange,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "Gemini File Assistant",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Ask questions or request file tasks",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextGray
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { viewModel.clearDrawerChatHistory() },
+                        modifier = Modifier.size(32.dp).testTag("btn_bottom_sheet_reset")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Reset Conversation",
+                            tint = TextGray,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp).testTag("btn_bottom_sheet_close")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Dismiss Sheet",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), modifier = Modifier.padding(vertical = 4.dp))
+
+            // Quick suggests slider
+            Text(
+                text = "Quick Queries",
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                color = CustomFlameOrange,
+                modifier = Modifier.padding(horizontal = 20.dp).padding(top = 4.dp, bottom = 4.dp)
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    "📊 Breakdown" to "Can you list my local files and give me a full storage breakdown by category, calculating the percentage of space used?",
+                    "⚖️ Duplicates" to "Are there duplicate files on my device based on size pairings? List them.",
+                    "🗑️ Junk stats" to "How many junk files are there on my device and what is the total size we can reclaim?",
+                    "💡 Space Saving" to "What are some best practices for reducing clutter and saving storage space here?"
+                ).forEach { (label, prompt) ->
+                    AssistChip(
+                        onClick = { viewModel.sendDrawerChatMessage(prompt) },
+                        label = { Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = Color.White.copy(alpha = 0.08f)
+                        ),
+                        modifier = Modifier.testTag("chat_chip_${label.replace(" ", "_").lowercase()}")
+                    )
+                }
+            }
+
+            // Quick actions slider
+            Text(
+                text = "File Management Actions",
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                color = AquaticWaveBlue,
+                modifier = Modifier.padding(horizontal = 20.dp).padding(top = 6.dp, bottom = 4.dp)
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Auto-Sort Files
+                Button(
+                    onClick = { viewModel.performAiCategoryReorganization() },
+                    colors = ButtonDefaults.buttonColors(containerColor = CustomFlameOrange.copy(alpha = 0.2f), contentColor = CustomFlameOrange),
+                    border = BorderStroke(1.dp, CustomFlameOrange.copy(alpha = 0.4f)),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(30.dp).testTag("action_chip_sort")
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(12.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Auto-Sort Files", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+
+                // Clear Junk Files
+                Button(
+                    onClick = { viewModel.showJunkCleaner.value = true; onDismiss() },
+                    colors = ButtonDefaults.buttonColors(containerColor = ForestEcoGreen.copy(alpha = 0.2f), contentColor = ForestEcoGreen),
+                    border = BorderStroke(1.dp, ForestEcoGreen.copy(alpha = 0.4f)),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(30.dp).testTag("action_chip_junk")
+                ) {
+                    Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(12.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Clear Junk", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+
+                // Refresh Registries
+                Button(
+                    onClick = { viewModel.scanRealFilesystem() },
+                    colors = ButtonDefaults.buttonColors(containerColor = AquaticWaveBlue.copy(alpha = 0.2f), contentColor = AquaticWaveBlue),
+                    border = BorderStroke(1.dp, AquaticWaveBlue.copy(alpha = 0.4f)),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(30.dp).testTag("action_chip_refresh")
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Refresh Storage", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), modifier = Modifier.padding(top = 6.dp, bottom = 4.dp))
+
+            // Conversation history container
+            val listState = rememberLazyListState()
+            LaunchedEffect(messages.size) {
+                if (messages.isNotEmpty()) {
+                    listState.animateScrollToItem(messages.size - 1)
+                }
+            }
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(messages) { msg ->
+                    val isUser = msg.isUser
+                    val bubbleColor = if (isUser) CustomFlameOrange.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.08f)
+                    val alignment = if (isUser) Alignment.End else Alignment.Start
+                    val bubbleShape = if (isUser) {
+                        RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp)
+                    } else {
+                        RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomEnd = 16.dp)
+                    }
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = alignment
+                    ) {
+                        Card(
+                            shape = bubbleShape,
+                            colors = CardDefaults.cardColors(containerColor = bubbleColor),
+                            border = if (isUser) null else BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+                            modifier = Modifier.widthIn(max = 290.dp)
+                        ) {
+                            Text(
+                                text = msg.text,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White,
+                                lineHeight = 20.sp,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+                }
+
+                if (isSending) {
+                    item {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                color = CustomFlameOrange,
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Gemini is thinking...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextGray
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), modifier = Modifier.padding(top = 4.dp))
+
+            // Text input Row
+            var userPromptText by remember { mutableStateOf("") }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp)
+            ) {
+                OutlinedTextField(
+                    value = userPromptText,
+                    onValueChange = { userPromptText = it },
+                    placeholder = { Text("Ask about files or request actions...", fontSize = 13.sp, color = TextGray) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = CustomFlameOrange,
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+                        unfocusedContainerColor = Color.White.copy(alpha = 0.04f),
+                        focusedContainerColor = Color.White.copy(alpha = 0.04f),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(24.dp),
+                    singleLine = true,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("bottom_sheet_chat_input")
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(
+                    onClick = {
+                        if (userPromptText.isNotBlank()) {
+                            viewModel.sendDrawerChatMessage(userPromptText)
+                            userPromptText = ""
+                        }
+                    },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .background(CustomFlameOrange, CircleShape)
+                        .testTag("bottom_sheet_chat_send_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Send,
+                        contentDescription = "Send prompt",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
         }

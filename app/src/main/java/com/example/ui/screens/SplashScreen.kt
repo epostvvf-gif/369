@@ -181,7 +181,7 @@ fun SplashScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
-                    text = "Smart File & Cloud Manager",
+                    text = "VVF File Manager Ultra",
                     fontWeight = FontWeight.Black,
                     fontSize = 24.sp,
                     color = Color.White,
